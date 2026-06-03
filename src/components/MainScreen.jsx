@@ -4,7 +4,7 @@ import { Droplets, Wind } from 'lucide-react';
 
 export default function MainScreen({ weather, insights, themeGradient }) {
   return (
-    <div className={`h-[100svh] w-full transition-colors duration-1000 bg-gradient-to-br ${themeGradient} flex flex-col justify-center py-10 px-6 overflow-hidden justify-between items-center`}>
+    <div className={`h-[100svh] transition-colors duration-1000 bg-gradient-to-br ${themeGradient} flex flex-col py-10 px-6 overflow-hidden justify-between items-center`}>
       <div className="w-full max-w-2xl space-y-12">
         <header className="text-center space-y-4">
           <p className="text-sm uppercase tracking-[0.5em] opacity-60">{weather.locationName}</p>
