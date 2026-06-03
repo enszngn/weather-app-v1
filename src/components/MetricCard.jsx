@@ -8,7 +8,7 @@ export default function MetricCard({ Icon, label, value, unit }) {
         <Icon size={18} strokeWidth={1.5} />
         <span className="text-xs uppercase tracking-widest font-medium">{label}</span>
       </div>
-      
+
       {/* Value row */}
       <div className="flex items-baseline gap-1">
         <span className="text-2xl font-semibold text-slate-50">{value}</span>
