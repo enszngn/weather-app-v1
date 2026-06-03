@@ -16,8 +16,8 @@ export default function MainScreen({ weather, insights, themeGradient }) {
     <div className={`relative h-[100svh] w-full overflow-hidden transition-colors duration-1000 bg-gradient-to-br ${themeGradient} flex items-center justify-center p-[clamp(1rem,4svh,2.5rem)]`}>
       {/* Time-based continuous algebraic overlay */}
       <div
-        className="absolute inset-0 bg-black/10 pointer-events-none z-0"
-        style={{ backgroundColor: `rgba(0, 0, 0, ${darkness})` }}
+        className="absolute inset-0 bg-black pointer-events-none z-0"
+        style={{ opacity: darkness }}
       />
 
       <div className="relative z-10 w-full max-w-2xl h-full flex flex-col justify-between py-[clamp(0.5rem,3svh,1.5rem)]">
