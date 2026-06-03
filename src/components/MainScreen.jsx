@@ -11,7 +11,7 @@ export default function MainScreen({ weather, insights, themeGradient }) {
           <h1 className="text-[clamp(4rem,18svh,10rem)] leading-none font-bold tracking-tighter italic">{Math.round(weather.temp)}°</h1>
         </header>
 
-        <div className="space-y-[clamp(0.5rem,1.5svh,1rem)] my-auto">
+        <div className="space-y-[clamp(0.5rem,1.5svh,1rem)] overflow-y-auto max-h-[35svh] custom-scrollbar pr-1 my-auto">
           {insights.map((text, i) => <InsightCard key={i} text={text} />)}
         </div>
 
