@@ -3,46 +3,39 @@
  * @param {Object} data - The weather data object from our hook.
  * @returns {Array} insights - Array of objects with text and styling.
  */
+
+export function getSystemTheme(weatherCode) {
+  // WMO Weather Codes mapping to background gradients
+  // Clear sky (0), Partly cloudy (1-3)
+  if ([0, 1, 2, 3].includes(weatherCode)) return 'from-blue-600 to-blue-400';
+  // Rain (51-67, 80-82)
+  if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(weatherCode)) return 'from-slate-700 to-slate-900';
+  // Snow (71-77, 85-86)
+  if ([71, 73, 75, 77, 85, 86].includes(weatherCode)) return 'from-blue-100 to-slate-300 text-slate-900';
+  // Default/Overcast
+  return 'from-slate-800 to-slate-950';
+}
+
 export function generateInsights(data) {
   const insights = [];
-
   if (!data) return insights;
 
-  // 1. Rheumatism / Joint Alert
   if (data.humidity > 85 && data.temp < 12) {
-    insights.push({
-      type: 'warning',
-      text: 'High humidity and chill detected. Keep joints warm to prevent flare-ups.',
-      style: 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-    });
+    insights.push("High humidity and chill detected. Keep joints warm.");
   }
-
-  // 2. Precipitation / Rain Alert (WMO codes 51-67 are various rains)
-  const rainCodes = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82];
+  const rainCodes = [51, 53, 55, 61, 63, 65, 80, 81, 82];
   if (rainCodes.includes(data.weatherCode)) {
-    insights.push({
-      type: 'action',
-      text: 'Precipitation active. Waterproof footwear and an umbrella are recommended.',
-      style: 'bg-blue-500/10 border-blue-500/30 text-blue-200'
-    });
+    insights.push("Precipitation active. Waterproof footwear recommended.");
   }
-
-  // 3. UV Protection
   if (data.uvIndex >= 6) {
-    insights.push({
-      type: 'caution',
-      text: 'Strong solar radiation. Apply SPF 30+ and wear sunglasses if outdoors.',
-      style: 'bg-orange-500/10 border-orange-500/30 text-orange-200'
-    });
+    insights.push("Strong solar radiation. Apply SPF 30+ protection.");
+  }
+  if (data.windSpeed > 25) {
+    insights.push("Brisk winds detected. Layered clothing advised.");
   }
 
-  // 4. Wind Alert
-  if (data.windSpeed > 25) {
-    insights.push({
-      type: 'info',
-      text: 'Brisk winds detected. A windbreaker or layered clothing is advised.',
-      style: 'bg-teal-500/10 border-teal-500/30 text-teal-200'
-    });
+  if (insights.length === 0) {
+    insights.push("Conditions are stable. Enjoy your day.");
   }
 
   return insights;
