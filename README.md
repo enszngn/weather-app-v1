@@ -1,4 +1,4 @@
-# 🌦️ Weather Insights V1
+# 🌦️ Weather Insights
 
 A high-performance, minimalist weather application designed to provide instant atmospheric data with zero friction. Built with modern web technologies and deployed on the edge for maximum speed.
 
@@ -8,7 +8,7 @@ A high-performance, minimalist weather application designed to provide instant a
 
 ## 🚀 Overview
 
-Weather Insights V1 focuses on **fast insights**. Unlike traditional weather apps cluttered with ads and heavy animations, this tool provides a streamlined, utility-first interface to get you the information you need in seconds.
+Weather Insights focuses on **fast insights**. Unlike traditional weather apps cluttered with ads and heavy animations, this tool provides a streamlined, utility-first interface to get you the information you need in seconds.
 
 ---
 
