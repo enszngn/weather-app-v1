@@ -51,17 +51,7 @@ export default function useWeather() {
       // Backend API'ye ziyaret bilgisini kaydediyoruz
       try {
         await fetch('/api', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            city_name: locationName,
-            city: city || null,
-            country: country || null,
-            lat: lat,
-            lon: lon,
-          }),
+          method: 'POST'
         });
       } catch (apiErr) {
         console.error('Failed to log visit to backend:', apiErr);
