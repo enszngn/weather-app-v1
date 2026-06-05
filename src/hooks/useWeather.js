@@ -19,12 +19,17 @@ export default function useWeather() {
       const data = await response.json();
 
       let locationName = data.timezone.split('/')[1]?.replace('_', ' ') || data.timezone;
+      let city = '';
+      let country = '';
+
       try {
         const geoUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
         const geoResponse = await fetch(geoUrl);
         if (geoResponse.ok) {
           const geoData = await geoResponse.json();
           locationName = geoData.city || geoData.locality || geoData.principalSubdivision || locationName;
+          city = geoData.city || geoData.locality || '';
+          country = geoData.countryName || '';
         }
       } catch (geoErr) {
         console.warn('Geocoding fallback failed, using timezone name:', geoErr);
@@ -42,6 +47,25 @@ export default function useWeather() {
 
       localStorage.setItem(CACHE_KEY, JSON.stringify(newWeatherData));
       setWeather(newWeatherData);
+
+      // Backend API'ye ziyaret bilgisini kaydediyoruz
+      try {
+        await fetch('/api', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            city_name: locationName,
+            city: city || null,
+            country: country || null,
+            lat: lat,
+            lon: lon,
+          }),
+        });
+      } catch (apiErr) {
+        console.error('Failed to log visit to backend:', apiErr);
+      }
     } catch (err) {
       console.error(err);
       setError('Failed to fetch weather data');
