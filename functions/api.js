@@ -16,13 +16,13 @@ export async function onRequestPost(context) {
         const lon = cf.longitude ? parseFloat(cf.longitude) : 28.9784;
         const cityName = city;
 
-        // 3. wrangler.jsonc dosyasında "weatherApp_db" olarak adlandırdığımız D1 veritabanı bağlayıcısını alıyoruz.
-        const db = env.weatherApp_db;
+        // 3. wrangler.jsonc dosyasındaki "weatherApp_db" veya paneldeki varsayılan "DB" bağlantısını alıyoruz.
+        const db = env.weatherApp_db || env.DB;
 
         // 4. Veritabanı bağlayıcısının mevcut olup olmadığını kontrol ediyoruz.
         if (!db) {
             return new Response(
-                JSON.stringify({ error: "Veritabanı bağlantısı bulunamadı (weatherApp_db)." }),
+                JSON.stringify({ error: "Veritabanı bağlantısı bulunamadı (weatherApp_db veya DB)." }),
                 { status: 500, headers: { "Content-Type": "application/json" } }
             );
         }
