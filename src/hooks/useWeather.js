@@ -43,15 +43,6 @@ export default function useWeather() {
 
       localStorage.setItem(CACHE_KEY, JSON.stringify(newWeatherData));
       setWeather(newWeatherData);
-
-      // Backend API'ye ziyaret bilgisini kaydediyoruz
-      try {
-        await fetch('/api', {
-          method: 'POST'
-        });
-      } catch (apiErr) {
-        console.error('Failed to log visit to backend:', apiErr);
-      }
     } catch (err) {
       console.error(err);
       setError('Failed to fetch weather data');
@@ -61,6 +52,11 @@ export default function useWeather() {
   };
 
   useEffect(() => {
+    // Sayfa her açıldığında/ziyaret edildiğinde backend'e log gönderiyoruz (cache'den bağımsız)
+    fetch('/api', { method: 'POST' }).catch((apiErr) => {
+      console.error('Failed to log visit to backend:', apiErr);
+    });
+
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
       const parsedCache = JSON.parse(cached);
