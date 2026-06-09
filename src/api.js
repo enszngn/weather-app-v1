@@ -78,6 +78,8 @@ export async function onRequestGetWeather(context) {
             uvIndex:      meteoData.daily.uv_index_max[0],
             weatherCode:  meteoData.current.weather_code,
             locationName,
+            lat,
+            lon,
         };
 
         // ── 5. Write to cache with a 15-minute TTL ────────────────────────────────
