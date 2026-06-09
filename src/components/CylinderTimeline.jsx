@@ -60,6 +60,7 @@ export default function CylinderTimeline({ initialWeather }) {
 
       const now = new Date();
       const currentHour = now.getHours();
+      const isToday = dateStr === days[0];
 
       setLoadedData((prev) => {
         // Discard if coordinates have changed since the fetch started
@@ -71,11 +72,11 @@ export default function CylinderTimeline({ initialWeather }) {
             loading: false,
             error: null,
             data: {
-              temp: data.current?.temperature_2m ?? data.hourly.temperature_2m[currentHour],
-              humidity: data.current?.relative_humidity_2m ?? data.hourly.relative_humidity_2m?.[currentHour] ?? 50,
-              windSpeed: data.current?.wind_speed_10m ?? data.hourly.wind_speed_10m?.[currentHour] ?? 10,
+              temp: isToday && data.current ? data.current.temperature_2m : data.hourly.temperature_2m[currentHour],
+              humidity: isToday && data.current ? data.current.relative_humidity_2m : (data.hourly.relative_humidity_2m?.[currentHour] ?? 50),
+              windSpeed: isToday && data.current ? data.current.wind_speed_10m : (data.hourly.wind_speed_10m?.[currentHour] ?? 10),
               uvIndex: data.daily.uv_index_max[0],
-              weatherCode: data.current?.weather_code ?? data.hourly.weather_code[currentHour],
+              weatherCode: isToday && data.current ? data.current.weather_code : data.hourly.weather_code[currentHour],
               hourly: data.hourly,
               locationName: coords.title || data.timezone.split('/').pop().replace(/_/g, ' '),
               lat,
@@ -102,12 +103,14 @@ export default function CylinderTimeline({ initialWeather }) {
     }
   };
 
-  // Prefetch active index and immediate neighbors on index or coordinates change
+  // Prefetch active index, immediate neighbors, and +2/-2 buffer cards on index/coordinates change
   useEffect(() => {
     const neighbors = [
       activeIndex,
       (activeIndex - 1 + 8) % 8,
       (activeIndex + 1) % 8,
+      (activeIndex - 2 + 8) % 8,
+      (activeIndex + 2) % 8,
     ];
 
     neighbors.forEach((idx) => {
@@ -123,6 +126,7 @@ export default function CylinderTimeline({ initialWeather }) {
   const [dragOffset, setDragOffset] = useState(0);
   const startX = useRef(0);
   const isDragging = useRef(false);
+  const lastWheelTime = useRef(0);
 
   const handleTouchStart = (e) => {
     startX.current = e.touches[0].clientX;
@@ -155,6 +159,65 @@ export default function CylinderTimeline({ initialWeather }) {
     setDragOffset(0);
   };
 
+  // Desktop Mouse Dragging Handlers
+  const handleMouseDown = (e) => {
+    // Prevent dragging when clicking buttons, inputs, links, or lists
+    if (e.target.closest('input, button, a, select, option, ul, li')) return;
+    
+    startX.current = e.clientX;
+    isDragging.current = true;
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging.current) return;
+    const currentX = e.clientX;
+    const diffX = currentX - startX.current;
+    
+    const rotationSensitivity = 0.15;
+    setDragOffset(diffX * rotationSensitivity);
+  };
+
+  const handleMouseUp = () => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    document.body.style.userSelect = '';
+
+    const thresholdDegrees = 12;
+    if (dragOffset > thresholdDegrees) {
+      setActiveIndex((prev) => (prev - 1 + 8) % 8);
+    } else if (dragOffset < -thresholdDegrees) {
+      setActiveIndex((prev) => (prev + 1) % 8);
+    }
+
+    setDragOffset(0);
+  };
+
+  const handleMouseLeave = () => {
+    if (isDragging.current) {
+      handleMouseUp();
+    }
+  };
+
+  // Scroll Wheel Navigation (with overflow scroll protection)
+  const handleWheel = (e) => {
+    const now = Date.now();
+    // Throttle scroll events (800ms spacing between transitions)
+    if (now - lastWheelTime.current < 800) return;
+    
+    // Ignore wheel events inside scrollable hourly forecast or insights lists
+    if (e.target.closest('.overflow-x-auto, .overflow-y-auto, .custom-scrollbar')) return;
+
+    if (Math.abs(e.deltaY) > 20 || Math.abs(e.deltaX) > 20) {
+      lastWheelTime.current = now;
+      if (e.deltaY > 0 || e.deltaX > 0) {
+        setActiveIndex((prev) => (prev + 1) % 8);
+      } else {
+        setActiveIndex((prev) => (prev - 1 + 8) % 8);
+      }
+    }
+  };
+
   // ── City selection callback ──────────────────────────────────────────────────
   const handleSelectCity = (newCity) => {
     setCoords({
@@ -175,10 +238,15 @@ export default function CylinderTimeline({ initialWeather }) {
 
   return (
     <div
-      className={`relative h-[100svh] w-full overflow-hidden bg-gradient-to-br ${activeTheme} transition-colors duration-1000 flex flex-col justify-between py-6`}
+      className={`relative h-[100svh] w-full overflow-hidden bg-gradient-to-br ${activeTheme} transition-colors duration-1000 flex flex-col justify-between py-6 select-none`}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      onWheel={handleWheel}
     >
       {/* ─ Top Header: City Search & Day Nav ─ */}
       <div className="w-full flex flex-col items-center gap-4 z-30 select-none">
@@ -220,6 +288,7 @@ export default function CylinderTimeline({ initialWeather }) {
         >
           {days.map((dayStr, idx) => {
             const isActive = idx === activeIndex;
+            const isNeighbor = idx === (activeIndex - 1 + 8) % 8 || idx === (activeIndex + 1) % 8;
             const weatherItem = loadedData[dayStr];
             
             return (
@@ -236,6 +305,7 @@ export default function CylinderTimeline({ initialWeather }) {
                   title={coords.title}
                   dateStr={dayStr}
                   active={isActive}
+                  visible={isActive || isNeighbor}
                   weatherData={weatherItem?.data}
                   loadingData={weatherItem?.loading}
                   errorData={weatherItem?.error}
@@ -261,11 +331,6 @@ export default function CylinderTimeline({ initialWeather }) {
         >
           <ChevronRight size={20} />
         </button>
-      </div>
-
-      {/* ─ Bottom instructions/info ─ */}
-      <div className="w-full text-center text-[10px] tracking-[0.25em] font-light text-white/45 select-none z-30 pointer-events-none">
-        SWIPE OR USE ARROWS TO ROTATE TIMELINE
       </div>
     </div>
   );

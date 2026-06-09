@@ -47,6 +47,7 @@ export default function WeatherWindow({
   dateStr,
   initialWeather = null,
   active = true,
+  visible = true,
   weatherData = null,
   loadingData = false,
   errorData = null,
@@ -91,15 +92,21 @@ export default function WeatherWindow({
         if (!res.ok) throw new Error(`Open-Meteo returned HTTP ${res.status}`);
         const data = await res.json();
 
-        // Use the hour corresponding to current time for future day metric displays
         const currentHour = now.getHours();
+        
+        // Check if the date corresponds to local today
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const localTodayStr = `${year}-${month}-${day}`;
+        const isToday = dateStr === localTodayStr;
 
         setWeather({
-          temp: data.current?.temperature_2m ?? data.hourly.temperature_2m[currentHour],
-          humidity: data.current?.relative_humidity_2m ?? data.hourly.relative_humidity_2m?.[currentHour] ?? 50,
-          windSpeed: data.current?.wind_speed_10m ?? data.hourly.wind_speed_10m?.[currentHour] ?? 10,
+          temp: isToday && data.current ? data.current.temperature_2m : data.hourly.temperature_2m[currentHour],
+          humidity: isToday && data.current ? data.current.relative_humidity_2m : (data.hourly.relative_humidity_2m?.[currentHour] ?? 50),
+          windSpeed: isToday && data.current ? data.current.wind_speed_10m : (data.hourly.wind_speed_10m?.[currentHour] ?? 10),
           uvIndex: data.daily.uv_index_max[0],
-          weatherCode: data.current?.weather_code ?? data.hourly.weather_code[currentHour],
+          weatherCode: isToday && data.current ? data.current.weather_code : data.hourly.weather_code[currentHour],
           hourly: data.hourly,
           locationName: title || data.timezone.split('/').pop().replace(/_/g, ' '),
           lat,
@@ -179,19 +186,29 @@ export default function WeatherWindow({
     }
   };
 
+  let cardClass = '';
+  if (active) {
+    cardClass = 'scale-100 opacity-100 filter-none pointer-events-auto';
+  } else if (visible) {
+    cardClass = 'scale-90 opacity-40 pointer-events-none';
+  } else {
+    cardClass = 'scale-75 opacity-0 pointer-events-none';
+  }
+
   return (
     <div
-      className={`relative h-[80vh] w-full max-w-[var(--card-width)] mx-auto overflow-hidden border border-white/20 bg-gradient-to-br ${themeGradient} shadow-2xl transition-all duration-700 ease-out rounded-2xl ${
-        active 
-          ? 'scale-100 opacity-100 filter-none pointer-events-auto' 
-          : 'scale-90 opacity-40 blur-sm pointer-events-none'
-      }`}
+      className={`relative h-[80vh] w-full max-w-[var(--card-width)] mx-auto overflow-hidden border border-white/20 bg-gradient-to-br ${themeGradient} shadow-2xl transition-all duration-700 ease-out rounded-2xl ${cardClass}`}
     >
       {/* ── Time-based darkness overlay ── */}
       <div
         className="absolute inset-0 bg-black pointer-events-none z-0 transition-opacity duration-1000"
         style={{ opacity: darkness }}
       />
+
+      {/* ── Inactive Card Blur Overlay (prevents browser scroll compositing bugs) ── */}
+      {!active && visible && (
+        <div className="absolute inset-0 bg-slate-950/10 backdrop-blur-[3px] z-20 pointer-events-none" />
+      )}
 
       {/* ── Content Layer ── */}
       <div className="absolute inset-0 z-10 p-4">
@@ -217,7 +234,7 @@ export default function WeatherWindow({
         {displayWeather && (
           <>
             {/* ─ City Header & Date ─ */}
-            <div className="absolute top-[8%] inset-x-4 text-center select-none">
+            <div className="absolute top-[7%] inset-x-4 text-center select-none">
               <p className="text-[clamp(0.55rem,1.4vh,0.75rem)] uppercase tracking-[0.45em] text-white/50 leading-relaxed mb-0.5">
                 {displayName}
               </p>
@@ -231,27 +248,45 @@ export default function WeatherWindow({
               )}
             </div>
 
-            {/* ─ Temperature — centered at 28% vertical ─ */}
-            <div className="absolute top-[28%] inset-x-0 text-center pointer-events-none select-none">
+            {/* ─ Temperature — centered at 22% vertical ─ */}
+            <div className="absolute top-[22%] inset-x-0 text-center pointer-events-none select-none">
               <h1 className="text-[clamp(3.5rem,15vh,7rem)] leading-none font-bold tracking-tighter italic text-white drop-shadow-2xl">
                 {Math.round(displayWeather.temp)}°
               </h1>
             </div>
 
-            {/* ─ Insight Cards — at 46% vertical ─ */}
-            <div className="absolute top-[46%] inset-x-4 max-h-[10vh] overflow-y-auto custom-scrollbar space-y-1.5">
+            {/* ─ Insight Cards — at 40% vertical ─ */}
+            <div 
+              className="absolute top-[40%] inset-x-4 max-h-[10vh] overflow-y-auto custom-scrollbar space-y-1.5"
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onMouseMove={(e) => e.stopPropagation()}
+              onMouseUp={(e) => e.stopPropagation()}
+              onWheel={(e) => e.stopPropagation()}
+            >
               {insights.map((text, i) => (
                 <InsightCard key={i} text={text} />
               ))}
             </div>
 
-            {/* ─ Hourly Forecast Horizontal Slider — at 59% vertical ─ */}
+            {/* ─ Hourly Forecast Horizontal Slider — at 54% vertical ─ */}
             {sortedHourly.length > 0 && (
-              <div className="absolute top-[59%] inset-x-4">
+              <div className="absolute top-[54%] inset-x-4">
                 <p className="text-[9px] uppercase tracking-[0.25em] text-white/45 mb-1.5 select-none font-light">
                   Hourly Forecast (24h)
                 </p>
-                <div className="flex overflow-x-auto gap-2 py-1.5 no-scrollbar scroll-smooth touch-pan-x">
+                <div 
+                  className="flex overflow-x-auto gap-2 py-1.5 no-scrollbar scroll-smooth touch-pan-x"
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchMove={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onMouseMove={(e) => e.stopPropagation()}
+                  onMouseUp={(e) => e.stopPropagation()}
+                  onWheel={(e) => e.stopPropagation()}
+                >
                   {sortedHourly.map((hourItem, idx) => {
                     const IconComp = getWeatherIcon(hourItem.weatherCode);
                     const isCurrent = parseInt(hourItem.time.split(':')[0]) === currentHour;
@@ -280,8 +315,8 @@ export default function WeatherWindow({
               </div>
             )}
 
-            {/* ─ Metric Cards — at 82% vertical ─ */}
-            <div className="absolute top-[82%] inset-x-4">
+            {/* ─ Metric Cards — at 80% vertical ─ */}
+            <div className="absolute top-[80%] inset-x-4">
               <div className="grid grid-cols-2 gap-2 opacity-90">
                 <MetricCard Icon={Droplets} label="Humidity" value={displayWeather.humidity} unit="%" />
                 <MetricCard Icon={Wind} label="Wind" value={displayWeather.windSpeed} unit="km/h" />
