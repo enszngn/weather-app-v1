@@ -12,17 +12,28 @@ Weather Insights focuses on **fast insights**. Unlike traditional weather apps c
 
 ---
 
+---
+
 ## 📸 Screenshots
 
-### 📱 User Interface
-| Desktop View | Mobile View |
-| :---: | :---: |
-| ![Desktop Screenshot](./public/summerday.png) | ![Mobile Screenshot](./public/phone.png) |
+### 📱 3D Cylindrical Timeline Interface
 
-### 📊 System Analytics
 <p align="center">
-  <img src="./public/analytics.png" alt="Analytics Dashboard" width="100%">
+  <img src="./public/Ankara.png" alt="Ankara" width="100%" />
 </p>
+
+<p align="center">
+  <img src="./public/California.png" alt="California" width="100%" />
+</p>
+
+<p align="center">
+  <img src="./public/London.png" alt="London" width="100%" />
+</p>
+
+### 📱 Mobile UI & System Analytics
+| Mobile View | Analytics Dashboard |
+| :---: | :---: |
+| ![Mobile Screenshot](./public/phone.png) | ![Analytics Dashboard](./public/analytics.png) |
 
 ---
 
