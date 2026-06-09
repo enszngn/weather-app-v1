@@ -1,3 +1,126 @@
+/**
+ * GET /api/weather
+ *
+ * Server-side weather endpoint:
+ *  1. Reads visitor location from Cloudflare's request.cf geo metadata (no browser prompt).
+ *  2. Builds a cache key from rounded coordinates and checks caches.default (Cloudflare Cache API).
+ *  3. On cache HIT  → returns cached weather data immediately (no external API call).
+ *  4. On cache MISS → fetches Open-Meteo + BigDataCloud, writes result to cache with 15min TTL.
+ *  5. Always logs the visit to the D1 database via ctx.waitUntil (fire-and-forget).
+ */
+export async function onRequestGetWeather(context) {
+    const { request, env } = context;
+
+    // ── 1. Extract location from Cloudflare's automatic geo metadata ─────────────
+    const cf = request.cf || {};
+    const ip = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
+    const city    = cf.city    || 'Istanbul';
+    const country = cf.country || 'TR';
+    const lat = cf.latitude  ? parseFloat(cf.latitude)  : 41.0082;
+    const lon = cf.longitude ? parseFloat(cf.longitude) : 28.9784;
+
+    // ── 2. Build cache key — round to 1 decimal place (~11km grid) ────────────────
+    // Nearby users in the same city share the same cache bucket, cutting Open-Meteo
+    // traffic significantly without sacrificing meaningful location accuracy.
+    const latR = Math.round(lat * 10) / 10;
+    const lonR = Math.round(lon * 10) / 10;
+    const cacheKeyUrl  = `https://weather-cache.internal/v1?lat=${latR}&lon=${lonR}`;
+    const cacheRequest = new Request(cacheKeyUrl);
+    const cache        = caches.default;
+
+    // ── 3. Check Cloudflare Cache ─────────────────────────────────────────────────
+    let weatherData = null;
+    try {
+        const cachedResponse = await cache.match(cacheRequest);
+        if (cachedResponse) {
+            weatherData = await cachedResponse.json();
+        }
+    } catch (cacheErr) {
+        // Cache API unavailable in some local dev setups — proceed to live fetch.
+        console.warn('Cache read failed, proceeding with fresh fetch:', cacheErr);
+    }
+
+    // ── 4. Cache MISS: fetch live data ────────────────────────────────────────────
+    if (!weatherData) {
+        const meteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&daily=uv_index_max&timezone=auto`;
+
+        let meteoData;
+        try {
+            const meteoResponse = await fetch(meteoUrl);
+            if (!meteoResponse.ok) throw new Error(`Open-Meteo returned HTTP ${meteoResponse.status}`);
+            meteoData = await meteoResponse.json();
+        } catch (fetchErr) {
+            console.error('Open-Meteo fetch failed:', fetchErr);
+            return new Response(
+                JSON.stringify({ success: false, error: 'Weather API unavailable. Please try again later.' }),
+                { status: 502, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+
+        // Reverse-geocode to get a human-readable city name.
+        // Falls back to the Cloudflare-provided city name on any failure.
+        let locationName = city;
+        try {
+            const geoUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+            const geoResponse = await fetch(geoUrl);
+            if (geoResponse.ok) {
+                const geoData = await geoResponse.json();
+                locationName = geoData.city || geoData.locality || geoData.principalSubdivision || city;
+            }
+        } catch (geoErr) {
+            console.warn('Reverse geocoding failed, using Cloudflare city name:', geoErr);
+        }
+
+        weatherData = {
+            temp:         meteoData.current.temperature_2m,
+            humidity:     meteoData.current.relative_humidity_2m,
+            windSpeed:    meteoData.current.wind_speed_10m,
+            uvIndex:      meteoData.daily.uv_index_max[0],
+            weatherCode:  meteoData.current.weather_code,
+            locationName,
+        };
+
+        // ── 5. Write to cache with a 15-minute TTL ────────────────────────────────
+        try {
+            const cacheableResponse = new Response(JSON.stringify(weatherData), {
+                headers: {
+                    'Content-Type':  'application/json',
+                    'Cache-Control': 'public, max-age=900',
+                },
+            });
+            // waitUntil: don't block the response on the cache write.
+            context.waitUntil(cache.put(cacheRequest, cacheableResponse));
+        } catch (cachePutErr) {
+            console.warn('Cache write failed:', cachePutErr);
+        }
+    }
+
+    // ── 6. Log this visit to D1 regardless of cache hit/miss ─────────────────────
+    // Uses waitUntil so the D1 write doesn't delay the HTTP response.
+    const db = env.weatherApp_db || env.DB;
+    if (db) {
+        context.waitUntil(
+            db.prepare(
+                `INSERT INTO visits (city_name, ip, city, country, lat, lon) VALUES (?, ?, ?, ?, ?, ?)`
+            )
+            .bind(weatherData.locationName, ip, city, country, lat, lon)
+            .run()
+            .catch((dbErr) => console.error('D1 visit log failed:', dbErr))
+        );
+    }
+
+    // ── 7. Return weather payload to the client ───────────────────────────────────
+    return new Response(
+        JSON.stringify({
+            success: true,
+            weather: weatherData,
+        }),
+        {
+            headers: { 'Content-Type': 'application/json' },
+        }
+    );
+}
+
 export async function onRequestPost(context) {
     // 'context' parameter contains Cloudflare environment, request metadata, and bindings.
     const { request, env } = context;
