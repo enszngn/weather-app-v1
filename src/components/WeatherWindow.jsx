@@ -82,17 +82,14 @@ const STOP_PROPAGATION = {
 export default function WeatherWindow({
   title,
   dateStr,
-  active      = true,
-  visible     = true,
-  weatherData = null,
-  loadingData = false,
-  errorData   = null,
+  active        = true,
+  visible       = true,
+  weatherData   = null,
+  loadingData   = false,
+  errorData     = null,
+  onSliderInteract,  // (locked: boolean) => void
+  onHourChange,      // (hour: 0-23) => void — called by active card on every hour change
 }) {
-  // ── Time-based darkness overlay ───────────────────────────────────────────────
-  const now          = new Date();
-  const minutes      = now.getHours() * 60 + now.getMinutes();
-  const diffFromNoon = Math.abs(minutes - 720);
-  const darkness     = 0.2 + (diffFromNoon / 720) * 0.6; // 0.2 at noon → 0.8 at midnight
 
   // ── Derived values ────────────────────────────────────────────────────────────
   const themeGradient = weatherData
@@ -114,12 +111,11 @@ export default function WeatherWindow({
   const sortedHourly = useMemo(() => {
     if (!weatherData?.hourly) return [];
 
-    const currentHour = now.getHours();
     const times = weatherData.hourly.time           || [];
     const temps = weatherData.hourly.temperature_2m || [];
     const codes = weatherData.hourly.weather_code   || [];
 
-    // Collect all 24 hours that belong to this card's date.
+    // Collect all 24 hours that belong to this card's date (always 00:00 → 23:00).
     const dayHours = [];
     for (let i = 0; i < times.length; i++) {
       if (times[i].startsWith(dateStr)) {
@@ -131,44 +127,137 @@ export default function WeatherWindow({
       }
     }
 
-    // Active card: reorder so the current hour comes first (wraps around midnight).
-    // Inactive cards: keep natural 00:00 → 23:00 order.
-    if (active && dayHours.length === TOTAL_HOURS) {
-      return Array.from({ length: TOTAL_HOURS }, (_, i) => dayHours[(currentHour + i) % TOTAL_HOURS]);
-    }
     return dayHours;
-  }, [weatherData, dateStr, active]);
+  }, [weatherData, dateStr]);
 
-  // ── Snap-to-center slider state ────────────────────────────────────────────
+  // ── Transform-based hourly slider ──────────────────────────────────────────
   //
-  // The slider uses CSS scroll-snap (x mandatory + snap-align:center on each card)
-  // with symmetric left/right padding so that the first and last cards can also
-  // reach the exact center of the container.
+  // Uses translateX on a track div — NOT overflow-x:scroll — so there is
+  // no browser snap fighting with our drag.  During drag, the transform is
+  // written directly to the DOM (zero React re-renders).  On pointer-up we
+  // calculate a momentum-based landing card and animate with a CSS transition.
   //
-  // Layout math:
-  //   padding-left = padding-right = 50% - (cardWidth/2) = calc(50% - 31px)
-  //   When scrollLeft = N * CARD_SLOT_W, card N is centered.
-  //
-  const [selectedHourIndex, setSelectedHourIndex] = useState(0);
-  const sliderRef = useRef(null);
+  const [selectedHourIndex,  setSelectedHourIndex]  = useState(0);
+  const sliderContainerRef = useRef(null); // overflow:hidden clip div
+  const sliderTrackRef     = useRef(null); // moving flex row
+  const sliderOffsetRef    = useRef(0);    // current translateX (px)
+  const dragState          = useRef({ active: false, startX: 0, baseOffset: 0 });
+  const velocityState      = useRef({ lastX: 0, lastTime: 0, value: 0 });
 
-  // Reset slider to position 0 whenever new data loads or the card's active state
-  // changes. For the active card sortedHourly[0] = currentHour; for inactive = 00:00.
-  useEffect(() => {
-    setSelectedHourIndex(0);
-    if (sliderRef.current) {
-      sliderRef.current.scrollLeft = 0;
-    }
-  }, [weatherData, active]);
+  /** translateX so card `idx` sits at the horizontal centre of the container. */
+  const offsetForIdx = useCallback((idx) => {
+    const w = sliderContainerRef.current?.clientWidth ?? 0;
+    return w / 2 - idx * CARD_SLOT_W - CARD_SLOT_W / 2;
+  }, []);
 
-  // Fired on every scroll tick. Computes which card is centered by dividing
-  // scrollLeft by the per-slot width, then rounds to the nearest integer.
-  const handleSliderScroll = useCallback(() => {
-    const el = sliderRef.current;
+  /** Write translateX to the track — optionally with a smooth transition. */
+  const applyTrackOffset = useCallback((offset, animated) => {
+    const el = sliderTrackRef.current;
     if (!el) return;
-    const idx = Math.round(el.scrollLeft / CARD_SLOT_W);
-    setSelectedHourIndex(Math.max(0, Math.min(idx, sortedHourly.length - 1)));
-  }, [sortedHourly.length]);
+    el.style.transition = animated
+      ? 'transform 320ms cubic-bezier(0.25, 1, 0.5, 1)'
+      : 'none';
+    el.style.transform = `translateX(${offset}px)`;
+  }, []);
+
+  /**
+   * Snap to nearest card after pointer-up, factoring in release velocity.
+   * ~150 ms of momentum is extrapolated so a fast flick feels natural.
+   */
+  const snapToNearest = useCallback((currentOff, velPxPerMs) => {
+    const container = sliderContainerRef.current;
+    const count     = sortedHourly.length;
+    if (!container || !count) return;
+
+    const center        = container.clientWidth / 2;
+    const predictedOff  = currentOff + velPxPerMs * 150;
+    const centerInTrack = center - predictedOff;
+    const raw           = (centerInTrack - CARD_SLOT_W / 2) / CARD_SLOT_W;
+    const idx           = Math.max(0, Math.min(Math.round(raw), count - 1));
+    const targetOff     = offsetForIdx(idx);
+    sliderOffsetRef.current = targetOff;
+    applyTrackOffset(targetOff, true);
+    setSelectedHourIndex(idx);
+  }, [sortedHourly.length, offsetForIdx, applyTrackOffset]);
+
+  // Initialise slider position when data loads or active/date changes.
+  useEffect(() => {
+    const n        = new Date();
+    const todayStr = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    const isToday  = dateStr === todayStr;
+    const target   = (isToday && active) ? n.getHours() : 0;
+    setSelectedHourIndex(target);
+    // rAF: container must be painted so clientWidth is available.
+    requestAnimationFrame(() => {
+      const offset = offsetForIdx(target);
+      sliderOffsetRef.current = offset;
+      applyTrackOffset(offset, false);
+    });
+  }, [weatherData, active, dateStr, offsetForIdx, applyTrackOffset]);
+
+  // ── Pointer handlers (mouse + touch, via Pointer Events API) ──────────────
+  // setPointerCapture routes all future events here until pointerup,
+  // preventing CylinderTimeline from ever seeing them.
+  const handleSliderPointerDown = useCallback((e) => {
+    e.stopPropagation();
+    onSliderInteract?.(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragState.current     = { active: true, startX: e.clientX, baseOffset: sliderOffsetRef.current };
+    velocityState.current = { lastX: e.clientX, lastTime: Date.now(), value: 0 };
+  }, [onSliderInteract]);
+
+  const handleSliderPointerMove = useCallback((e) => {
+    e.stopPropagation();
+    if (!dragState.current.active) return;
+
+    // Velocity tracking
+    const now = Date.now();
+    const dt  = now - velocityState.current.lastTime;
+    if (dt > 0) velocityState.current.value = (e.clientX - velocityState.current.lastX) / dt;
+    velocityState.current.lastX    = e.clientX;
+    velocityState.current.lastTime = now;
+
+    // Move the track
+    const dx  = e.clientX - dragState.current.startX;
+    const off = dragState.current.baseOffset + dx;
+    sliderOffsetRef.current = off;
+    applyTrackOffset(off, false);
+
+    // Update highlight index during drag for visual feedback
+    const container = sliderContainerRef.current;
+    if (container) {
+      const center = container.clientWidth / 2;
+      const raw    = (center - off - CARD_SLOT_W / 2) / CARD_SLOT_W;
+      const idx    = Math.max(0, Math.min(Math.round(raw), sortedHourly.length - 1));
+      setSelectedHourIndex(idx);
+    }
+  }, [applyTrackOffset, sortedHourly.length]);
+
+  const handleSliderPointerUp = useCallback((e) => {
+    e.stopPropagation();
+    if (!dragState.current.active) return;
+    dragState.current.active = false;
+    onSliderInteract?.(false);
+    snapToNearest(sliderOffsetRef.current, velocityState.current.value);
+  }, [onSliderInteract, snapToNearest]);
+  /**
+   * Time-based darkness overlay opacity.
+   * Reactive to selectedHourIndex so dragging the slider visibly brightens/dims the card.
+   * Falls back to the real clock hour when data isn't loaded yet (selectedHourIndex = 0).
+   *
+   * Formula: 0.2 at noon (hour 12) → 0.8 at midnight (hour 0 or 23)
+   */
+  const darkness = useMemo(() => {
+    const hour = (sortedHourly.length > 0) ? selectedHourIndex : new Date().getHours();
+    return 0.2 + (Math.abs(hour - 12) / 12) * 0.6;
+  }, [selectedHourIndex, sortedHourly.length]);
+
+  // Notify parent (CylinderTimeline) whenever the active card's hour changes,
+  // so the page-level background overlay can sync without a full React re-render.
+  useEffect(() => {
+    if (active) onHourChange?.(selectedHourIndex);
+  }, [active, selectedHourIndex, onHourChange]);
+
 
   // The data for whichever hour-card is currently snapped to center.
   const selectedHourData = sortedHourly[selectedHourIndex] ?? null;
@@ -271,7 +360,7 @@ export default function WeatherWindow({
               ))}
             </div>
 
-            {/* ─ Hourly Forecast Snap Slider ─ */}
+            {/* ─ Hourly Forecast Slider ─ */}
             {sortedHourly.length > 0 && (
               <div className="absolute top-[56%] inset-x-0">
                 <p className="text-[9px] uppercase tracking-[0.25em] text-white/45 mb-2 select-none font-light px-4">
@@ -279,55 +368,55 @@ export default function WeatherWindow({
                 </p>
 
                 {/*
-                  Snap container:
-                    - overflow-x: scroll  (native scroll, browser handles momentum)
-                    - scroll-snap-type: x mandatory  (hard-snap to each card)
-                    - padding: calc(50% - 31px) on both sides so card 0 and card 23
-                      can both sit at the center of the container
-                    - gap: 8px between cards
-                  Each child:
-                    - scroll-snap-align: center  (snap to this card's center)
-                    - width: 62px  (fixed, enables exact CARD_SLOT_W = 70 math)
+                  Clip container: overflow:hidden hides off-screen cards.
+                  The inner track is translated with CSS transform — no scrollLeft
+                  manipulation, no scroll-snap fighting, pure GPU compositing.
                 */}
                 <div
-                  ref={sliderRef}
-                  className="flex no-scrollbar py-2 touch-pan-x"
-                  style={{
-                    overflowX:           'scroll',
-                    scrollSnapType:      'x mandatory',
-                    WebkitOverflowScrolling: 'touch',
-                    paddingLeft:  'calc(50% - 31px)',
-                    paddingRight: 'calc(50% - 31px)',
-                    gap:          '8px',
-                  }}
-                  onScroll={handleSliderScroll}
-                  {...STOP_PROPAGATION}
+                  ref={sliderContainerRef}
+                  className="overflow-hidden py-2 cursor-grab active:cursor-grabbing"
+                  style={{ touchAction: 'none', userSelect: 'none' }}
+                  onPointerDown={handleSliderPointerDown}
+                  onPointerMove={handleSliderPointerMove}
+                  onPointerUp={handleSliderPointerUp}
+                  onPointerCancel={handleSliderPointerUp}
+                  onWheel={(e) => e.stopPropagation()}
                 >
-                  {sortedHourly.map((hourItem, i) => {
-                    const IconComp  = getWeatherIcon(hourItem.weatherCode);
-                    const isSelected = i === selectedHourIndex;
-                    return (
-                      <div
-                        key={hourItem.time}
-                        style={{ scrollSnapAlign: 'center', flexShrink: 0, width: '62px' }}
-                        className={`flex flex-col items-center justify-between py-2 px-2 border transition-all duration-300 ${
-                          isSelected
-                            ? 'bg-cyan-500/25 border-cyan-400/60 shadow-[0_0_12px_rgba(34,211,238,0.25)] scale-105'
-                            : 'bg-white/5 border-white/10 opacity-55 scale-95'
-                        } rounded-lg backdrop-blur-sm`}
-                      >
-                        <span className={`text-[9px] tracking-wider ${isSelected ? 'text-cyan-300 font-semibold' : 'text-white/60 font-light'}`}>
-                          {hourItem.time}
-                        </span>
-                        <div className="my-1 text-white/85">
-                          <IconComp size={15} strokeWidth={1.5} />
+                  <div
+                    ref={sliderTrackRef}
+                    className="flex"
+                    style={{ gap: '8px', willChange: 'transform' }}
+                  >
+                    {sortedHourly.map((hourItem, i) => {
+                      const IconComp   = getWeatherIcon(hourItem.weatherCode);
+                      const isSelected = i === selectedHourIndex;
+                      return (
+                        <div
+                          key={hourItem.time}
+                          style={{ flexShrink: 0, width: '62px' }}
+                          className={`flex flex-col items-center justify-between py-2 px-2 border transition-colors duration-200 ${
+                            isSelected
+                              ? 'bg-cyan-500/25 border-cyan-400/60 shadow-[0_0_12px_rgba(34,211,238,0.25)]'
+                              : 'bg-white/5 border-white/10 opacity-55'
+                          } rounded-lg backdrop-blur-sm`}
+                        >
+                          <span className={`text-[9px] tracking-wider ${
+                            isSelected ? 'text-cyan-300 font-semibold' : 'text-white/60 font-light'
+                          }`}>
+                            {hourItem.time}
+                          </span>
+                          <div className="my-1 text-white/85">
+                            <IconComp size={15} strokeWidth={1.5} />
+                          </div>
+                          <span className={`text-[11px] font-semibold ${
+                            isSelected ? 'text-white' : 'text-white/65'
+                          }`}>
+                            {Math.round(hourItem.temp)}°
+                          </span>
                         </div>
-                        <span className={`text-[11px] font-semibold ${isSelected ? 'text-white' : 'text-white/65'}`}>
-                          {Math.round(hourItem.temp)}°
-                        </span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}

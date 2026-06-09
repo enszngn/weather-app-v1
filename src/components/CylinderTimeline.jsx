@@ -15,12 +15,15 @@ const CYLINDER_TRANSITION  = 'transform 700ms cubic-bezier(0.25, 1, 0.5, 1)';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Returns today + next N days as YYYY-MM-DD strings. */
+/** Returns today + next N days as YYYY-MM-DD strings (local timezone, not UTC). */
 function buildDays(count) {
   return Array.from({ length: count }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    return d.toISOString().split('T')[0];
+    const year  = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day   = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
 }
 
@@ -101,6 +104,24 @@ export default function CylinderTimeline({ initialWeather }) {
 
   // Initialise transform before first paint (no flash).
   useLayoutEffect(() => { applyTransform(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Locked while the user is interacting with the hourly slider inside a card.
+   * All cylinder gesture handlers bail out immediately when this is true,
+   * preventing accidental day-change during hour-scroll.
+   * Declared AFTER applyTransform to avoid TDZ (Temporal Dead Zone) errors
+   * in the production bundle.
+   */
+  const sliderLocked = useRef(false);
+  const lockCylinder = useCallback((locked) => {
+    sliderLocked.current = locked;
+    // Safety: release any in-progress cylinder drag when slider takes over.
+    if (locked && isDragging.current) {
+      isDragging.current = false;
+      dragOffsetRef.current = 0;
+      applyTransform(true);
+    }
+  }, [applyTransform]);
 
   /**
    * Navigate by a signed delta (e.g. +1 = next day, -1 = previous day).
@@ -217,12 +238,13 @@ export default function CylinderTimeline({ initialWeather }) {
 
   // ── Touch handlers ────────────────────────────────────────────────────────────
   const handleTouchStart = useCallback((e) => {
+    if (sliderLocked.current) return; // slider has priority
     startX.current     = e.touches[0].clientX;
     isDragging.current = true;
   }, []);
 
   const handleTouchMove = useCallback((e) => {
-    if (!isDragging.current) return;
+    if (sliderLocked.current || !isDragging.current) return;
     dragOffsetRef.current = (e.touches[0].clientX - startX.current) * ROTATION_SENSITIVITY;
     applyTransform(false);
   }, [applyTransform]);
@@ -234,6 +256,7 @@ export default function CylinderTimeline({ initialWeather }) {
 
   // ── Mouse handlers ────────────────────────────────────────────────────────────
   const handleMouseDown = useCallback((e) => {
+    if (sliderLocked.current) return; // slider has priority
     if (e.target.closest('input, button, a, select, option, ul, li')) return;
     startX.current                = e.clientX;
     isDragging.current            = true;
@@ -241,7 +264,7 @@ export default function CylinderTimeline({ initialWeather }) {
   }, []);
 
   const handleMouseMove = useCallback((e) => {
-    if (!isDragging.current) return;
+    if (sliderLocked.current || !isDragging.current) return;
     dragOffsetRef.current = (e.clientX - startX.current) * ROTATION_SENSITIVITY;
     applyTransform(false); // direct DOM write — zero React renders during drag
   }, [applyTransform]);
@@ -257,6 +280,7 @@ export default function CylinderTimeline({ initialWeather }) {
 
   // ── Scroll Wheel Navigation ───────────────────────────────────────────────────
   const handleWheel = useCallback((e) => {
+    if (sliderLocked.current) return; // slider has priority
     const now = Date.now();
     if (now - lastWheelTime.current < WHEEL_THROTTLE_MS) return;
     if (e.target.closest('.overflow-x-auto, .overflow-y-auto, .custom-scrollbar')) return;
@@ -274,11 +298,29 @@ export default function CylinderTimeline({ initialWeather }) {
     navigateTo(0);       // reset to Today
   }, [navigateTo]);
 
-  // ── Dynamic page background ───────────────────────────────────────────────────
+  // ── Dynamic page background ─────────────────────────────────────────────────────
   const activeWeather = loadedData[days[activeIndex]]?.data;
   const activeTheme   = activeWeather
     ? getSystemTheme(activeWeather.weatherCode)
     : 'from-slate-800 to-slate-950';
+
+  /**
+   * Page-level darkness overlay.
+   * Updates via direct DOM mutation (bgDarknessRef) so the active card's slider
+   * can drive the page brightness without triggering a React re-render chain.
+   * Formula: 0.1 (noon) → 0.55 (midnight) — softer than the card overlay.
+   */
+  const bgDarknessRef = useRef(null);
+  const handleCardHourChange = useCallback((hour) => {
+    if (!bgDarknessRef.current) return;
+    const opacity = 0.1 + (Math.abs(hour - 12) / 12) * 0.45;
+    bgDarknessRef.current.style.opacity = String(opacity);
+  }, []);
+  // Initial page darkness from current clock time.
+  const initialPageDarkness = (() => {
+    const h = new Date().getHours();
+    return 0.1 + (Math.abs(h - 12) / 12) * 0.45;
+  })();
 
   return (
     <div
@@ -292,6 +334,17 @@ export default function CylinderTimeline({ initialWeather }) {
       onMouseLeave={handleMouseLeave}
       onWheel={handleWheel}
     >
+      {/* ─ Page-level time-based darkness overlay ─
+          Opacity driven by the active card's selected hour via handleCardHourChange.
+          transition-[opacity] 1s so colour shifts feel cinematic, not abrupt. */}
+      <div
+        ref={bgDarknessRef}
+        className="absolute inset-0 bg-black pointer-events-none z-0"
+        style={{
+          opacity: initialPageDarkness,
+          transition: 'opacity 1s ease',
+        }}
+      />
       {/* ─ Top Header: City Search & Day Nav ─ */}
       <div className="w-full flex flex-col items-center gap-4 z-30 select-none">
         <CitySearch onSelectCity={handleSelectCity} />
@@ -361,6 +414,8 @@ export default function CylinderTimeline({ initialWeather }) {
                   weatherData={weatherItem?.data}
                   loadingData={weatherItem?.loading}
                   errorData={weatherItem?.error}
+                  onSliderInteract={lockCylinder}
+                  onHourChange={handleCardHourChange}
                 />
               </div>
             );
