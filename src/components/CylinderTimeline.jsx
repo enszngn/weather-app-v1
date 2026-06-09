@@ -231,10 +231,10 @@ export default function CylinderTimeline({ initialWeather }) {
               <button
                 key={dayStr}
                 onClick={() => navigateTo(idx)}
-                className={`px-3 py-1.5 text-[9px] tracking-widest font-light transition-all border ${
+                className={`px-3 py-1.5 text-[9px] tracking-widest font-light transition-all ${
                   isActive
-                    ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 font-semibold'
-                    : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:bg-white/10'
+                    ? 'bg-cyan-500/25 text-cyan-300 font-semibold'
+                    : 'bg-white/5 text-white/50 hover:text-white/80 hover:bg-white/10'
                 } rounded-lg`}
               >
                 {dayName}

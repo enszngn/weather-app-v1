@@ -155,7 +155,7 @@ export default function WeatherWindow({
 
   return (
     <div
-      className={`relative h-[80vh] w-full max-w-[var(--card-width)] mx-auto overflow-hidden border border-white/20 bg-gradient-to-br ${themeGradient} shadow-2xl transition-all duration-700 ease-out rounded-2xl ${cardClass}`}
+      className={`relative h-[80vh] w-full max-w-[var(--card-width)] mx-auto overflow-hidden bg-gradient-to-br ${themeGradient} shadow-2xl transition-all duration-700 ease-out rounded-2xl ${cardClass}`}
     >
       {/* ── Time-based darkness overlay ── */}
       <div
@@ -266,22 +266,22 @@ export default function WeatherWindow({
                         <div
                           key={hourItem.time}
                           style={{ flexShrink: 0, width: '62px' }}
-                          className={`flex flex-col items-center justify-between py-2 px-2 border transition-colors duration-200 ${
+                          className={`flex flex-col items-center justify-between py-2 px-2 transition-all duration-200 ${
                             isSelected
-                              ? 'bg-cyan-500/25 border-cyan-400/60 shadow-[0_0_12px_rgba(34,211,238,0.25)]'
-                              : 'bg-white/5 border-white/10 opacity-55'
-                          } rounded-lg backdrop-blur-sm`}
+                              ? 'bg-white/20 opacity-100 scale-105 shadow-[0_4px_12px_rgba(255,255,255,0.08)]'
+                              : 'bg-white/5 opacity-40 scale-95'
+                          } rounded-lg`}
                         >
                           <span className={`text-[9px] tracking-wider ${
-                            isSelected ? 'text-cyan-300 font-semibold' : 'text-white/60 font-light'
+                            isSelected ? 'text-white font-bold' : 'text-white/60 font-light'
                           }`}>
                             {hourItem.time}
                           </span>
-                          <div className="my-1 text-white/85">
-                            <IconComp size={15} strokeWidth={1.5} />
+                          <div className={`my-1 transition-opacity duration-200 ${isSelected ? 'text-white opacity-100' : 'text-white/50'}`}>
+                            <IconComp size={15} strokeWidth={isSelected ? 2 : 1.5} />
                           </div>
-                          <span className={`text-[11px] font-semibold ${
-                            isSelected ? 'text-white' : 'text-white/65'
+                          <span className={`text-[11px] font-semibold transition-all duration-200 ${
+                            isSelected ? 'text-white font-bold text-xs scale-105' : 'text-white/65'
                           }`}>
                             {Math.round(hourItem.temp)}°
                           </span>
