@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import WeatherWindow from './WeatherWindow';
 import CitySearch from './CitySearch';
 import { getSystemTheme } from '../utils/weatherLogic';
@@ -6,11 +6,12 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 // ── Module-level constants ────────────────────────────────────────────────────
 
-const TOTAL_DAYS          = 8;
-const ROTATION_PER_CARD   = 360 / TOTAL_DAYS; // 45° per card face
-const ROTATION_SENSITIVITY = 0.15;            // px → degrees
-const THRESHOLD_DEGREES    = 12;              // min drag to commit a slide
-const WHEEL_THROTTLE_MS    = 800;             // ms between wheel-triggered slides
+const TOTAL_DAYS           = 8;
+const ROTATION_PER_CARD    = 360 / TOTAL_DAYS; // 45° per card face
+const ROTATION_SENSITIVITY = 0.15;             // px → degrees
+const THRESHOLD_DEGREES    = 12;               // min drag to commit a slide
+const WHEEL_THROTTLE_MS    = 800;              // ms between wheel-triggered slides
+const CYLINDER_TRANSITION  = 'transform 700ms cubic-bezier(0.25, 1, 0.5, 1)';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -27,22 +28,22 @@ function buildDays(count) {
 function normaliseMeteoData(data, dateStr, isToday, fallbackTitle) {
   const currentHour = new Date().getHours();
   return {
-    temp:        isToday && data.current ? data.current.temperature_2m          : data.hourly.temperature_2m[currentHour],
-    humidity:    isToday && data.current ? data.current.relative_humidity_2m     : (data.hourly.relative_humidity_2m?.[currentHour] ?? 50),
-    windSpeed:   isToday && data.current ? data.current.wind_speed_10m           : (data.hourly.wind_speed_10m?.[currentHour] ?? 10),
-    uvIndex:     data.daily.uv_index_max[0],
-    weatherCode: isToday && data.current ? data.current.weather_code            : data.hourly.weather_code[currentHour],
-    hourly:      data.hourly,
+    temp:         isToday && data.current ? data.current.temperature_2m          : data.hourly.temperature_2m[currentHour],
+    humidity:     isToday && data.current ? data.current.relative_humidity_2m    : (data.hourly.relative_humidity_2m?.[currentHour] ?? 50),
+    windSpeed:    isToday && data.current ? data.current.wind_speed_10m           : (data.hourly.wind_speed_10m?.[currentHour] ?? 10),
+    uvIndex:      data.daily.uv_index_max[0],
+    weatherCode:  isToday && data.current ? data.current.weather_code            : data.hourly.weather_code[currentHour],
+    hourly:       data.hourly,
     locationName: fallbackTitle || data.timezone.split('/').pop().replace(/_/g, ' '),
-    lat:         data.latitude,
-    lon:         data.longitude,
+    lat:          data.latitude,
+    lon:          data.longitude,
   };
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CylinderTimeline({ initialWeather }) {
-  // ── Location & active day state ───────────────────────────────────────────────
+  // ── Location & active day state ──────────────────────────────────────────────
   const [coords, setCoords] = useState({
     lat:   initialWeather?.lat          ?? 41.0082,
     lon:   initialWeather?.lon          ?? 28.9784,
@@ -61,6 +62,91 @@ export default function CylinderTimeline({ initialWeather }) {
   });
 
   const activeFetches = useRef(new Set());
+
+  // ── Cumulative rotation (fixes wrap-around bug) ───────────────────────────────
+  //
+  // Problem with the old approach: rotateY = activeIndex * -45°
+  //   → jumping from index 7 back to 0 meant CSS went from -315° → 0°,
+  //     which is a +315° rotation (7 steps backward) instead of -45° (1 step forward).
+  //
+  // Fix: accumulate rotations indefinitely. Never wrap/mod the CSS angle.
+  //   e.g. 0 → -45 → -90 → ... → -315 → -360 (not 0!) → -405 ...
+  //   The cylinder math still works because faces are periodic at 360°.
+  //
+  const cumulativeRotation = useRef(0); // total CSS degrees; grows without bound
+
+  // ── DOM refs — transform written directly, bypassing React (FPS fix) ──────────
+  //
+  // dragOffset was previously useState → setDragOffset on every mousemove
+  // triggered a full React re-render of all 8 cards (~60×/s = janky).
+  // Now: we write directly to style.transform via cylinderRef — zero React renders.
+  //
+  const cylinderRef   = useRef(null); // ref to the rotating wrapper div
+  const dragOffsetRef = useRef(0);    // current drag angle (degrees)
+  const isDragging    = useRef(false);
+  const startX        = useRef(0);
+  const lastWheelTime = useRef(0);
+
+  /**
+   * Writes the current cumulative + drag rotation directly to the cylinder DOM node.
+   * @param {boolean} animated - Whether to apply the CSS transition.
+   */
+  const applyTransform = useCallback((animated = true) => {
+    if (!cylinderRef.current) return;
+    const total = cumulativeRotation.current + dragOffsetRef.current;
+    cylinderRef.current.style.transition = animated ? CYLINDER_TRANSITION : 'none';
+    cylinderRef.current.style.transform  =
+      `translateZ(calc(var(--card-width) * -1.207)) rotateY(${total}deg)`;
+  }, []);
+
+  // Initialise transform before first paint (no flash).
+  useLayoutEffect(() => { applyTransform(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Navigate by a signed delta (e.g. +1 = next day, -1 = previous day).
+   * Accumulates rotation so the cylinder always turns the short way.
+   */
+  const navigateBy = useCallback((delta) => {
+    cumulativeRotation.current -= delta * ROTATION_PER_CARD;
+    dragOffsetRef.current = 0;
+    setActiveIndex((prev) => ((prev + delta) % TOTAL_DAYS + TOTAL_DAYS) % TOTAL_DAYS);
+    applyTransform(true);
+  }, [applyTransform]);
+
+  /**
+   * Navigate to a specific index via the shortest arc (for tab/dot clicks).
+   * Picks −1 step rather than +7 when applicable.
+   */
+  const navigateTo = useCallback((targetIndex) => {
+    const currentIndex =
+      ((Math.round(-cumulativeRotation.current / ROTATION_PER_CARD)) % TOTAL_DAYS + TOTAL_DAYS) % TOTAL_DAYS;
+    let delta = targetIndex - currentIndex;
+    if (delta >  TOTAL_DAYS / 2) delta -= TOTAL_DAYS; // e.g. 7 → -1
+    if (delta < -TOTAL_DAYS / 2) delta += TOTAL_DAYS; // e.g. -7 → +1
+    cumulativeRotation.current -= delta * ROTATION_PER_CARD;
+    dragOffsetRef.current = 0;
+    setActiveIndex(targetIndex);
+    applyTransform(true);
+  }, [applyTransform]);
+
+  /**
+   * Commits the current drag to a navigation step or snaps back.
+   * Shared by mouse and touch end handlers.
+   */
+  const commitDrag = useCallback(() => {
+    const offset = dragOffsetRef.current;
+    isDragging.current = false;
+    document.body.style.userSelect = '';
+    dragOffsetRef.current = 0;
+
+    if (offset > THRESHOLD_DEGREES) {
+      navigateBy(-1); // dragged right → previous day
+    } else if (offset < -THRESHOLD_DEGREES) {
+      navigateBy(1);  // dragged left  → next day
+    } else {
+      applyTransform(true); // below threshold → snap back
+    }
+  }, [navigateBy, applyTransform]);
 
   // ── Fetch weather for a specific day ─────────────────────────────────────────
   const fetchDataForDate = useCallback(async (dateStr, lat, lon) => {
@@ -121,7 +207,6 @@ export default function CylinderTimeline({ initialWeather }) {
       (activeIndex - 2 + TOTAL_DAYS) % TOTAL_DAYS,
       (activeIndex + 2) % TOTAL_DAYS,
     ];
-
     neighbors.forEach((idx) => {
       const dateStr = days[idx];
       if (!loadedData[dateStr] || loadedData[dateStr].error) {
@@ -129,25 +214,6 @@ export default function CylinderTimeline({ initialWeather }) {
       }
     });
   }, [activeIndex, coords, days, fetchDataForDate, loadedData]);
-
-  // ── Drag / Swipe state ────────────────────────────────────────────────────────
-  const [dragOffset, setDragOffset]   = useState(0);
-  const startX       = useRef(0);
-  const isDragging   = useRef(false);
-  const lastWheelTime = useRef(0);
-
-  /**
-   * Commits the current dragOffset to an index change (or resets if below
-   * threshold). Shared by both mouse and touch end handlers.
-   */
-  const commitDrag = useCallback((offset) => {
-    if (offset > THRESHOLD_DEGREES) {
-      setActiveIndex((prev) => (prev - 1 + TOTAL_DAYS) % TOTAL_DAYS);
-    } else if (offset < -THRESHOLD_DEGREES) {
-      setActiveIndex((prev) => (prev + 1) % TOTAL_DAYS);
-    }
-    setDragOffset(0);
-  }, []);
 
   // ── Touch handlers ────────────────────────────────────────────────────────────
   const handleTouchStart = useCallback((e) => {
@@ -157,14 +223,14 @@ export default function CylinderTimeline({ initialWeather }) {
 
   const handleTouchMove = useCallback((e) => {
     if (!isDragging.current) return;
-    setDragOffset((e.touches[0].clientX - startX.current) * ROTATION_SENSITIVITY);
-  }, []);
+    dragOffsetRef.current = (e.touches[0].clientX - startX.current) * ROTATION_SENSITIVITY;
+    applyTransform(false);
+  }, [applyTransform]);
 
   const handleTouchEnd = useCallback(() => {
     if (!isDragging.current) return;
-    isDragging.current = false;
-    commitDrag(dragOffset);
-  }, [commitDrag, dragOffset]);
+    commitDrag();
+  }, [commitDrag]);
 
   // ── Mouse handlers ────────────────────────────────────────────────────────────
   const handleMouseDown = useCallback((e) => {
@@ -176,19 +242,18 @@ export default function CylinderTimeline({ initialWeather }) {
 
   const handleMouseMove = useCallback((e) => {
     if (!isDragging.current) return;
-    setDragOffset((e.clientX - startX.current) * ROTATION_SENSITIVITY);
-  }, []);
+    dragOffsetRef.current = (e.clientX - startX.current) * ROTATION_SENSITIVITY;
+    applyTransform(false); // direct DOM write — zero React renders during drag
+  }, [applyTransform]);
 
   const handleMouseUp = useCallback(() => {
     if (!isDragging.current) return;
-    isDragging.current             = false;
-    document.body.style.userSelect = '';
-    commitDrag(dragOffset);
-  }, [commitDrag, dragOffset]);
+    commitDrag();
+  }, [commitDrag]);
 
   const handleMouseLeave = useCallback(() => {
-    if (isDragging.current) handleMouseUp();
-  }, [handleMouseUp]);
+    if (isDragging.current) commitDrag();
+  }, [commitDrag]);
 
   // ── Scroll Wheel Navigation ───────────────────────────────────────────────────
   const handleWheel = useCallback((e) => {
@@ -198,20 +263,16 @@ export default function CylinderTimeline({ initialWeather }) {
 
     if (Math.abs(e.deltaY) > 20 || Math.abs(e.deltaX) > 20) {
       lastWheelTime.current = now;
-      setActiveIndex((prev) =>
-        e.deltaY > 0 || e.deltaX > 0
-          ? (prev + 1) % TOTAL_DAYS
-          : (prev - 1 + TOTAL_DAYS) % TOTAL_DAYS
-      );
+      navigateBy(e.deltaY > 0 || e.deltaX > 0 ? 1 : -1);
     }
-  }, []);
+  }, [navigateBy]);
 
-  // ── City selection ────────────────────────────────────────────────────────────
+  // ── City selection ─────────────────────────────────────────────────────────────
   const handleSelectCity = useCallback((newCity) => {
     setCoords({ lat: newCity.lat, lon: newCity.lon, title: newCity.name });
-    setLoadedData({});   // clear old city's cache
-    setActiveIndex(0);   // reset to Today
-  }, []);
+    setLoadedData({});  // clear old city's cache
+    navigateTo(0);       // reset to Today
+  }, [navigateTo]);
 
   // ── Dynamic page background ───────────────────────────────────────────────────
   const activeWeather = loadedData[days[activeIndex]]?.data;
@@ -238,16 +299,16 @@ export default function CylinderTimeline({ initialWeather }) {
         {/* Day selector tabs */}
         <div className="flex gap-2 justify-center max-w-full px-4 overflow-x-auto no-scrollbar">
           {days.map((dayStr, idx) => {
-            const isActive  = idx === activeIndex;
-            const dateObj   = new Date(dayStr + 'T00:00:00');
-            const dayName   = idx === 0
+            const isActive = idx === activeIndex;
+            const dateObj  = new Date(dayStr + 'T00:00:00');
+            const dayName  = idx === 0
               ? 'TODAY'
               : dateObj.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
 
             return (
               <button
                 key={dayStr}
-                onClick={() => setActiveIndex(idx)}
+                onClick={() => navigateTo(idx)}
                 className={`px-3 py-1.5 text-[9px] tracking-widest font-light transition-all border ${
                   isActive
                     ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 font-semibold'
@@ -264,11 +325,18 @@ export default function CylinderTimeline({ initialWeather }) {
       {/* ─ 3D Cylinder Container ─ */}
       <div className="relative flex-1 w-full flex items-center justify-center perspective-1200 overflow-hidden select-none z-10">
 
-        {/* Carousel Wheel */}
+        {/*
+          Carousel Wheel.
+          transform is controlled entirely via cylinderRef (DOM mutation),
+          NOT via a React style prop. This gives zero React re-renders during drag.
+          useLayoutEffect sets the initial transform before first paint.
+        */}
         <div
-          className="preserve-3d w-full h-[80vh] flex items-center justify-center transition-transform duration-700 cubic-bezier(0.25, 1, 0.5, 1)"
+          ref={cylinderRef}
+          className="preserve-3d w-full h-[80vh] flex items-center justify-center"
           style={{
-            transform: `translateZ(calc(var(--card-width) * -1.207)) rotateY(${(-activeIndex * ROTATION_PER_CARD) + dragOffset}deg)`,
+            // Provide a safe initial value; useLayoutEffect overrides before paint.
+            transform: 'translateZ(calc(var(--card-width) * -1.207)) rotateY(0deg)',
           }}
         >
           {days.map((dayStr, idx) => {
@@ -301,7 +369,7 @@ export default function CylinderTimeline({ initialWeather }) {
 
         {/* ─ Side Arrow Controls ─ */}
         <button
-          onClick={() => setActiveIndex((prev) => (prev - 1 + TOTAL_DAYS) % TOTAL_DAYS)}
+          onClick={() => navigateBy(-1)}
           className="absolute left-4 p-3 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full text-white backdrop-blur-md transition-all shadow-lg cursor-pointer hover:scale-105 active:scale-95 z-20 shrink-0"
           title="Previous Day"
         >
@@ -309,7 +377,7 @@ export default function CylinderTimeline({ initialWeather }) {
         </button>
 
         <button
-          onClick={() => setActiveIndex((prev) => (prev + 1) % TOTAL_DAYS)}
+          onClick={() => navigateBy(1)}
           className="absolute right-4 p-3 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full text-white backdrop-blur-md transition-all shadow-lg cursor-pointer hover:scale-105 active:scale-95 z-20 shrink-0"
           title="Next Day"
         >

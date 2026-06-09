@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import InsightCard from './InsightCard';
 import MetricCard from './MetricCard';
 import {
@@ -17,6 +17,9 @@ import { generateInsights, getSystemTheme } from '../utils/weatherLogic';
 // ── Module-level constants & pure helpers ─────────────────────────────────────
 
 const TOTAL_HOURS = 24;
+// Card width (62px) + gap (8px) = 70px per slot.
+// Used to compute which card is centered in the snap-slider.
+const CARD_SLOT_W = 70;
 
 /** Maps a WMO weather code to its Lucide icon component. */
 function getWeatherIcon(code) {
@@ -103,16 +106,20 @@ export default function WeatherWindow({
     [weatherData]
   );
 
-  // Build a 24-hour hourly forecast starting from the current hour, filtered
-  // to the card's specific date so each day shows the right data.
+  // ── Hourly data ───────────────────────────────────────────────────────────────
+  //
+  // Active tab  (today's card) → reorder so current hour is first in the slider.
+  // Inactive tabs              → always start from 00:00 (no reorder).
+  //
   const sortedHourly = useMemo(() => {
     if (!weatherData?.hourly) return [];
 
     const currentHour = now.getHours();
-    const times = weatherData.hourly.time          || [];
+    const times = weatherData.hourly.time           || [];
     const temps = weatherData.hourly.temperature_2m || [];
     const codes = weatherData.hourly.weather_code   || [];
 
+    // Collect all 24 hours that belong to this card's date.
     const dayHours = [];
     for (let i = 0; i < times.length; i++) {
       if (times[i].startsWith(dateStr)) {
@@ -124,11 +131,55 @@ export default function WeatherWindow({
       }
     }
 
-    if (dayHours.length !== TOTAL_HOURS) return dayHours;
+    // Active card: reorder so the current hour comes first (wraps around midnight).
+    // Inactive cards: keep natural 00:00 → 23:00 order.
+    if (active && dayHours.length === TOTAL_HOURS) {
+      return Array.from({ length: TOTAL_HOURS }, (_, i) => dayHours[(currentHour + i) % TOTAL_HOURS]);
+    }
+    return dayHours;
+  }, [weatherData, dateStr, active]);
 
-    // Reorder so the current hour comes first (wraps around midnight).
-    return Array.from({ length: TOTAL_HOURS }, (_, i) => dayHours[(currentHour + i) % TOTAL_HOURS]);
-  }, [weatherData, dateStr]);
+  // ── Snap-to-center slider state ────────────────────────────────────────────
+  //
+  // The slider uses CSS scroll-snap (x mandatory + snap-align:center on each card)
+  // with symmetric left/right padding so that the first and last cards can also
+  // reach the exact center of the container.
+  //
+  // Layout math:
+  //   padding-left = padding-right = 50% - (cardWidth/2) = calc(50% - 31px)
+  //   When scrollLeft = N * CARD_SLOT_W, card N is centered.
+  //
+  const [selectedHourIndex, setSelectedHourIndex] = useState(0);
+  const sliderRef = useRef(null);
+
+  // Reset slider to position 0 whenever new data loads or the card's active state
+  // changes. For the active card sortedHourly[0] = currentHour; for inactive = 00:00.
+  useEffect(() => {
+    setSelectedHourIndex(0);
+    if (sliderRef.current) {
+      sliderRef.current.scrollLeft = 0;
+    }
+  }, [weatherData, active]);
+
+  // Fired on every scroll tick. Computes which card is centered by dividing
+  // scrollLeft by the per-slot width, then rounds to the nearest integer.
+  const handleSliderScroll = useCallback(() => {
+    const el = sliderRef.current;
+    if (!el) return;
+    const idx = Math.round(el.scrollLeft / CARD_SLOT_W);
+    setSelectedHourIndex(Math.max(0, Math.min(idx, sortedHourly.length - 1)));
+  }, [sortedHourly.length]);
+
+  // The data for whichever hour-card is currently snapped to center.
+  const selectedHourData = sortedHourly[selectedHourIndex] ?? null;
+
+  // ── Derived display values (reflect selected hour) ────────────────────────────
+  const displayTemp    = selectedHourData
+    ? Math.round(selectedHourData.temp)
+    : weatherData ? Math.round(weatherData.temp) : '--';
+
+  const displayCode    = selectedHourData?.weatherCode ?? weatherData?.weatherCode ?? 0;
+  const WeatherIcon    = getWeatherIcon(displayCode);
 
   // ── Card visibility class ─────────────────────────────────────────────────────
   const cardClass = active
@@ -191,16 +242,28 @@ export default function WeatherWindow({
               )}
             </div>
 
-            {/* ─ Temperature — centered at 22% vertical ─ */}
-            <div className="absolute top-[22%] inset-x-0 text-center pointer-events-none select-none">
-              <h1 className="text-[clamp(3.5rem,15vh,7rem)] leading-none font-bold tracking-tighter italic text-white drop-shadow-2xl">
-                {Math.round(weatherData.temp)}°
-              </h1>
+            {/* ─ Temperature + selected-hour label ─ */}
+            <div className="absolute top-[20%] inset-x-0 text-center pointer-events-none select-none">
+              {/* Icon + temperature on the same baseline */}
+              <div className="flex items-center justify-center gap-2">
+                <WeatherIcon
+                  size={28}
+                  strokeWidth={1.5}
+                  className="text-white/70 transition-all duration-300"
+                />
+                <h1 className="text-[clamp(3.5rem,14vh,6.5rem)] leading-none font-bold tracking-tighter italic text-white drop-shadow-2xl">
+                  {displayTemp}°
+                </h1>
+              </div>
+              {/* Hour label — shows which hour is currently selected in the slider */}
+              <p className="text-[clamp(0.6rem,1.4vh,0.72rem)] text-cyan-300/70 tracking-[0.3em] mt-1 uppercase font-light transition-all duration-300">
+                {selectedHourData ? selectedHourData.time : ''}
+              </p>
             </div>
 
-            {/* ─ Insight Cards — at 40% vertical ─ */}
+            {/* ─ Insight Cards — at 42% vertical ─ */}
             <div
-              className="absolute top-[40%] inset-x-4 max-h-[10vh] overflow-y-auto custom-scrollbar space-y-1.5"
+              className="absolute top-[42%] inset-x-4 max-h-[10vh] overflow-y-auto custom-scrollbar space-y-1.5"
               {...STOP_PROPAGATION}
             >
               {insights.map((text) => (
@@ -208,35 +271,58 @@ export default function WeatherWindow({
               ))}
             </div>
 
-            {/* ─ Hourly Forecast Horizontal Slider — at 54% vertical ─ */}
+            {/* ─ Hourly Forecast Snap Slider ─ */}
             {sortedHourly.length > 0 && (
-              <div className="absolute top-[54%] inset-x-4">
-                <p className="text-[9px] uppercase tracking-[0.25em] text-white/45 mb-1.5 select-none font-light">
-                  Hourly Forecast (24h)
+              <div className="absolute top-[56%] inset-x-0">
+                <p className="text-[9px] uppercase tracking-[0.25em] text-white/45 mb-2 select-none font-light px-4">
+                  Hourly · 24h
                 </p>
+
+                {/*
+                  Snap container:
+                    - overflow-x: scroll  (native scroll, browser handles momentum)
+                    - scroll-snap-type: x mandatory  (hard-snap to each card)
+                    - padding: calc(50% - 31px) on both sides so card 0 and card 23
+                      can both sit at the center of the container
+                    - gap: 8px between cards
+                  Each child:
+                    - scroll-snap-align: center  (snap to this card's center)
+                    - width: 62px  (fixed, enables exact CARD_SLOT_W = 70 math)
+                */}
                 <div
-                  className="flex overflow-x-auto gap-2 py-1.5 no-scrollbar scroll-smooth touch-pan-x"
+                  ref={sliderRef}
+                  className="flex no-scrollbar py-2 touch-pan-x"
+                  style={{
+                    overflowX:           'scroll',
+                    scrollSnapType:      'x mandatory',
+                    WebkitOverflowScrolling: 'touch',
+                    paddingLeft:  'calc(50% - 31px)',
+                    paddingRight: 'calc(50% - 31px)',
+                    gap:          '8px',
+                  }}
+                  onScroll={handleSliderScroll}
                   {...STOP_PROPAGATION}
                 >
-                  {sortedHourly.map((hourItem) => {
-                    const IconComp = getWeatherIcon(hourItem.weatherCode);
-                    const isCurrent = parseInt(hourItem.time.split(':')[0], 10) === now.getHours();
+                  {sortedHourly.map((hourItem, i) => {
+                    const IconComp  = getWeatherIcon(hourItem.weatherCode);
+                    const isSelected = i === selectedHourIndex;
                     return (
                       <div
                         key={hourItem.time}
-                        className={`flex flex-col items-center justify-between py-2 px-2.5 min-w-[62px] border transition-all duration-300 ${
-                          isCurrent
-                            ? 'bg-cyan-500/25 border-cyan-400/50 shadow-[0_0_8px_rgba(34,211,238,0.25)]'
-                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                        style={{ scrollSnapAlign: 'center', flexShrink: 0, width: '62px' }}
+                        className={`flex flex-col items-center justify-between py-2 px-2 border transition-all duration-300 ${
+                          isSelected
+                            ? 'bg-cyan-500/25 border-cyan-400/60 shadow-[0_0_12px_rgba(34,211,238,0.25)] scale-105'
+                            : 'bg-white/5 border-white/10 opacity-55 scale-95'
                         } rounded-lg backdrop-blur-sm`}
                       >
-                        <span className={`text-[9px] tracking-wider font-light ${isCurrent ? 'text-cyan-300 font-normal' : 'text-white/60'}`}>
+                        <span className={`text-[9px] tracking-wider ${isSelected ? 'text-cyan-300 font-semibold' : 'text-white/60 font-light'}`}>
                           {hourItem.time}
                         </span>
-                        <div className="my-1 text-white/90">
+                        <div className="my-1 text-white/85">
                           <IconComp size={15} strokeWidth={1.5} />
                         </div>
-                        <span className="text-[11px] font-semibold text-white">
+                        <span className={`text-[11px] font-semibold ${isSelected ? 'text-white' : 'text-white/65'}`}>
                           {Math.round(hourItem.temp)}°
                         </span>
                       </div>
