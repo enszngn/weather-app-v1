@@ -132,8 +132,8 @@ export default function WeatherWindow({ lat, lon, title, date = 'current', initi
         {/* ── Weather content (shown once data is available) ── */}
         {weather && (
           <>
-            {/* ─ City Header — bottom-anchored at the 38vh mark ─ */}
-            <div className="absolute top-[38vh] inset-x-4 text-center -translate-y-full pb-2 select-none">
+            {/* ─ City Header — bottom-anchored just above temperature ─ */}
+            <div className="absolute top-[28vh] inset-x-4 text-center -translate-y-full pb-1 select-none">
               <p className="text-[clamp(0.65rem,1.6svh,0.85rem)] uppercase tracking-[0.45em] text-white/65 leading-relaxed">
                 {displayName}
               </p>
@@ -144,25 +144,25 @@ export default function WeatherWindow({ lat, lon, title, date = 'current', initi
               )}
             </div>
 
-            {/* ─ Temperature — exact viewport center ─ */}
-            <div className="absolute top-1/2 inset-x-0 text-center -translate-y-1/2 pointer-events-none select-none">
+            {/* ─ Temperature — centered at the 2/5 mark (40vh) ─ */}
+            <div className="absolute top-[40vh] inset-x-0 text-center -translate-y-1/2 pointer-events-none select-none">
               <h1 className="text-[clamp(5rem,22svh,13rem)] leading-none font-bold tracking-tighter italic text-white drop-shadow-2xl">
                 {Math.round(weather.temp)}°
               </h1>
             </div>
 
-            {/* ─ Insight Cards — between center and metrics ─ */}
-            <div className="absolute top-[60vh] inset-x-4 max-h-[18svh] overflow-y-auto custom-scrollbar space-y-[clamp(0.35rem,0.9svh,0.6rem)]">
+            {/* ─ Insight Cards — at the 4/6 mark (~62vh) ─ */}
+            <div className="absolute top-[62vh] inset-x-4 max-h-[14svh] overflow-y-auto custom-scrollbar space-y-[clamp(0.35rem,0.9svh,0.6rem)]">
               {insights.map((text, i) => (
                 <InsightCard key={i} text={text} />
               ))}
             </div>
 
-            {/* ─ Metric Cards — bottom zone ─ */}
-            <div className="absolute bottom-[8svh] inset-x-4">
+            {/* ─ Metric Cards — at the 5/6 mark (~80vh) ─ */}
+            <div className="absolute top-[80vh] inset-x-4">
               <div className="grid grid-cols-2 gap-[clamp(0.5rem,1.5svh,1rem)] opacity-85">
                 <MetricCard Icon={Droplets} label="Humidity" value={weather.humidity} unit="%" />
-                <MetricCard Icon={Wind} label="Wind" value={weather.windSpeed} unit="km/h" />
+                <MetricCard Icon={Wind}     label="Wind"     value={weather.windSpeed} unit="km/h" />
               </div>
             </div>
           </>

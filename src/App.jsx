@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import useWeather from './hooks/useWeather';
 import WeatherWindow from './components/WeatherWindow';
-import CitySearch from './components/CitySearch';
 import StatsPage from './components/StatsPage';
 
 /**
@@ -37,21 +36,6 @@ export default function App() {
   // The returned weather object includes lat/lon from the server response.
   const { weather, loading, error } = useWeather();
 
-  // selectedLocation drives what WeatherWindow displays.
-  // Starts null, gets set once the server response arrives.
-  // Can be overridden by city search.
-  const [selectedLocation, setSelectedLocation] = useState(null);
-
-  useEffect(() => {
-    if (weather && !selectedLocation) {
-      setSelectedLocation({
-        lat:   weather.lat,
-        lon:   weather.lon,
-        title: weather.locationName,
-      });
-    }
-  }, [weather]);
-
   // ── Stats page ────────────────────────────────────────────────────────────────
   if (path === '/stats' || path === '/stats/') {
     return <StatsPage navigate={navigate} />;
@@ -61,39 +45,18 @@ export default function App() {
   if (loading && !weather) return <LoadingScreen />;
   if (error && !weather)   return <ErrorScreen message={error} />;
 
-  // ── Determine whether WeatherWindow can reuse the server-fetched data ─────────
-  // If the user hasn't searched for a different city yet, coordinates still match
-  // the server response → pass initialWeather to skip the redundant fetch.
-  const coordsMatchServer =
-    weather &&
-    selectedLocation &&
-    selectedLocation.lat === weather.lat &&
-    selectedLocation.lon === weather.lon;
-
   // ── Main render ───────────────────────────────────────────────────────────────
   return (
     <div className="relative">
 
-      {/* City search — fixed at top, floats above the full-screen WeatherWindow */}
-      {selectedLocation && (
-        <div className="fixed top-5 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
-          <div className="pointer-events-auto">
-            <CitySearch
-              currentCityName={selectedLocation.title}
-              onSelect={(loc) => setSelectedLocation(loc)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Full-screen weather display */}
-      {selectedLocation && (
+      {/* Full-screen weather display — location from server IP geolocation */}
+      {weather && (
         <WeatherWindow
-          lat={selectedLocation.lat}
-          lon={selectedLocation.lon}
-          title={selectedLocation.title}
+          lat={weather.lat}
+          lon={weather.lon}
+          title={weather.locationName}
           date="current"
-          initialWeather={coordsMatchServer ? weather : null}
+          initialWeather={weather}
         />
       )}
 
