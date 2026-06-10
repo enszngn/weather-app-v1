@@ -54,11 +54,13 @@ body {
 /* 3D Cylinder configuration */
 :root {
   --card-width: 450px;
+  --card-height: 80vh;
 }
 
 @media (max-width: 640px) {
   :root {
-    --card-width: 330px;
+    --card-width: 75vw;
+    --card-height: 68vh;
   }
 }
 

@@ -253,7 +253,7 @@ export default function CylinderTimeline({ initialWeather }) {
         */}
         <div
           ref={cylinderRef}
-          className="preserve-3d w-full h-[80vh] flex items-center justify-center"
+          className="preserve-3d w-full h-[var(--card-height)] flex items-center justify-center"
           style={{
             transform: 'translateZ(calc(var(--card-width) * -1.207)) rotateY(0deg)',
           }}
@@ -267,7 +267,7 @@ export default function CylinderTimeline({ initialWeather }) {
             return (
               <div
                 key={dayStr}
-                className="absolute w-full max-w-[var(--card-width)] h-[80vh] preserve-3d"
+                className="absolute w-full max-w-[var(--card-width)] h-[var(--card-height)] preserve-3d"
                 style={{
                   transform: `rotateY(${idx * ROTATION_PER_CARD}deg) translateZ(calc(var(--card-width) * 1.207))`,
                 }}
@@ -291,7 +291,7 @@ export default function CylinderTimeline({ initialWeather }) {
         {/* ─ Side Arrow Controls ─ */}
         <button
           onClick={() => navigateBy(-1)}
-          className="absolute left-4 p-3 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full text-white backdrop-blur-md transition-all shadow-lg cursor-pointer hover:scale-105 active:scale-95 z-20 shrink-0"
+          className="hidden md:block absolute left-4 p-3 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full text-white backdrop-blur-md transition-all shadow-lg cursor-pointer hover:scale-105 active:scale-95 z-20 shrink-0"
           title="Previous Day"
         >
           <ChevronLeft size={20} />
@@ -299,7 +299,7 @@ export default function CylinderTimeline({ initialWeather }) {
 
         <button
           onClick={() => navigateBy(1)}
-          className="absolute right-4 p-3 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full text-white backdrop-blur-md transition-all shadow-lg cursor-pointer hover:scale-105 active:scale-95 z-20 shrink-0"
+          className="hidden md:block absolute right-4 p-3 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full text-white backdrop-blur-md transition-all shadow-lg cursor-pointer hover:scale-105 active:scale-95 z-20 shrink-0"
           title="Next Day"
         >
           <ChevronRight size={20} />

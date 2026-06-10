@@ -155,7 +155,7 @@ export default function WeatherWindow({
 
   return (
     <div
-      className={`relative h-[80vh] w-full max-w-[var(--card-width)] mx-auto overflow-hidden bg-gradient-to-br ${themeGradient} shadow-2xl transition-all duration-700 ease-out rounded-2xl ${cardClass}`}
+      className={`relative h-[var(--card-height)] w-full max-w-[var(--card-width)] mx-auto overflow-hidden bg-gradient-to-br ${themeGradient} shadow-2xl transition-all duration-700 ease-out rounded-2xl ${cardClass}`}
     >
       {/* ── Time-based darkness overlay ── */}
       <div
