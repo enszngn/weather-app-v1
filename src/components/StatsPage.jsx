@@ -144,7 +144,7 @@ export default function StatsPage({ navigate }) {
 
   // ── Derived data — memoized to avoid re-computation on every render ───────────
   const chartData        = useMemo(() => buildChartData(stats?.chartData), [stats?.chartData]);
-  const totalVisitsCount = stats?.visits?.length  ?? 0;
+  const totalVisitsCount = stats?.totalVisits ?? 0;
   const uniqueCitiesCount = stats?.pins?.length   ?? 0;
   const topCityName       = stats?.pins?.[0]?.city ?? 'None';
 

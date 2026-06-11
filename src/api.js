@@ -360,12 +360,19 @@ export async function onRequestGet(context) {
              LIMIT 100`
         ).all();
 
+        // Total visits count (actual DB total).
+        const totalQuery = await db.prepare(
+            `SELECT COUNT(*) as total FROM visits`
+        ).first();
+        const totalVisits = totalQuery ? totalQuery.total : 0;
+
         return new Response(
             JSON.stringify({
-                success:   true,
-                chartData: chartDataQuery.results || [],
-                pins:      pinsQuery.results || [],
-                visits:    tableQuery.results || [],
+                success:     true,
+                chartData:   chartDataQuery.results || [],
+                pins:        pinsQuery.results || [],
+                visits:      tableQuery.results || [],
+                totalVisits: totalVisits,
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
