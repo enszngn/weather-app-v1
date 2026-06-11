@@ -52,7 +52,24 @@ function _extractGeo(request) {
 export async function onRequestGetWeather(context) {
     const { request, env } = context;
 
-    const { ip, city, country, lat, lon } = _extractGeo(request);
+    // Check if coordinates are passed in the URL query string
+    const url = new URL(request.url);
+    const queryLat = url.searchParams.get('lat');
+    const queryLon = url.searchParams.get('lon');
+
+    let ip, city, country, lat, lon;
+    const geo = _extractGeo(request);
+    ip = geo.ip;
+    city = geo.city;
+    country = geo.country;
+
+    if (queryLat && queryLon) {
+        lat = parseFloat(queryLat);
+        lon = parseFloat(queryLon);
+    } else {
+        lat = geo.lat;
+        lon = geo.lon;
+    }
 
     // ── Build cache key — round to 1 decimal place (~11km grid) ────────────────
     // Nearby users in the same city share the same cache bucket, cutting Open-Meteo
@@ -68,7 +85,12 @@ export async function onRequestGetWeather(context) {
     try {
         const cachedResponse = await cache.match(cacheRequest);
         if (cachedResponse) {
-            weatherData = await cachedResponse.json();
+            const data = await cachedResponse.json();
+            if (data && Array.isArray(data.forecast)) {
+                weatherData = data;
+            } else {
+                console.warn('Cache hit contains old schema format (missing forecast array). Forcing cache miss.');
+            }
         }
     } catch (cacheErr) {
         // Cache API unavailable in some local dev setups — proceed to live fetch.
@@ -77,7 +99,7 @@ export async function onRequestGetWeather(context) {
 
     // ── Cache MISS: fetch live data ───────────────────────────────────────────
     if (!weatherData) {
-        const meteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,weather_code&daily=uv_index_max&timezone=auto`;
+        const meteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&daily=uv_index_max&timezone=auto&forecast_days=8`;
 
         let meteoData;
         try {
@@ -106,24 +128,61 @@ export async function onRequestGetWeather(context) {
             console.warn('Reverse geocoding failed, using Cloudflare city name:', geoErr);
         }
 
+        const currentHour = new Date().getHours();
+        const forecast = [];
+
+        for (let idx = 0; idx < 8; idx++) {
+            const dateStr = meteoData.daily.time[idx];
+            const isToday = idx === 0;
+
+            const uvIndex = meteoData.daily.uv_index_max?.[idx] ?? 0;
+
+            // Generate 24 hourly objects for this day
+            const hourly = [];
+            for (let h = 0; h < 24; h++) {
+                const hourlyIdx = idx * 24 + h;
+                const timeRaw = meteoData.hourly.time[hourlyIdx];
+                const timeStr = timeRaw ? timeRaw.split('T')[1] : `${String(h).padStart(2, '0')}:00`;
+
+                hourly.push({
+                    time: timeStr,
+                    temp: meteoData.hourly.temperature_2m[hourlyIdx],
+                    humidity: meteoData.hourly.relative_humidity_2m?.[hourlyIdx] ?? 50,
+                    windSpeed: meteoData.hourly.wind_speed_10m?.[hourlyIdx] ?? 10,
+                    weatherCode: meteoData.hourly.weather_code[hourlyIdx] ?? 0,
+                });
+            }
+
+            // Calculate current-like values for this day:
+            const temp = isToday ? meteoData.current.temperature_2m : (meteoData.hourly.temperature_2m[idx * 24 + currentHour] ?? 15);
+            const humidity = isToday ? meteoData.current.relative_humidity_2m : (meteoData.hourly.relative_humidity_2m?.[idx * 24 + currentHour] ?? 50);
+            const windSpeed = isToday ? meteoData.current.wind_speed_10m : (meteoData.hourly.wind_speed_10m?.[idx * 24 + currentHour] ?? 10);
+            const weatherCode = isToday ? meteoData.current.weather_code : (meteoData.hourly.weather_code[idx * 24 + currentHour] ?? 0);
+
+            forecast.push({
+                date: dateStr,
+                temp,
+                humidity,
+                windSpeed,
+                uvIndex,
+                weatherCode,
+                hourly,
+            });
+        }
+
         weatherData = {
-            temp:        meteoData.current.temperature_2m,
-            humidity:    meteoData.current.relative_humidity_2m,
-            windSpeed:   meteoData.current.wind_speed_10m,
-            uvIndex:     meteoData.daily.uv_index_max[0],
-            weatherCode: meteoData.current.weather_code,
-            hourly:      meteoData.hourly,
             locationName,
             lat,
             lon,
+            forecast,
         };
 
-        // Write to cache with a 15-minute TTL (non-blocking).
+        // Write to cache with a 4-hour TTL (non-blocking).
         try {
             const cacheableResponse = new Response(JSON.stringify(weatherData), {
                 headers: {
                     'Content-Type':  'application/json',
-                    'Cache-Control': 'public, max-age=900',
+                    'Cache-Control': 'public, max-age=14400',
                 },
             });
             context.waitUntil(cache.put(cacheRequest, cacheableResponse));

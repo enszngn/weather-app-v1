@@ -69,31 +69,7 @@ export default function WeatherWindow({
   const displayName = title || weatherData?.locationName || '';
 
   // ── Hourly data ───────────────────────────────────────────────────────────────
-  const sortedHourly = useMemo(() => {
-    if (!weatherData?.hourly) return [];
-
-    const times     = weatherData.hourly.time                 || [];
-    const temps     = weatherData.hourly.temperature_2m       || [];
-    const codes     = weatherData.hourly.weather_code         || [];
-    const humidity  = weatherData.hourly.relative_humidity_2m || [];
-    const windSpeed = weatherData.hourly.wind_speed_10m       || [];
-
-    // Collect all 24 hours that belong to this card's date (always 00:00 → 23:00).
-    const dayHours = [];
-    for (let i = 0; i < times.length; i++) {
-      if (times[i].startsWith(dateStr)) {
-        dayHours.push({
-          time:        times[i].split('T')[1], // "HH:MM"
-          temp:        temps[i],
-          weatherCode: codes[i],
-          humidity:    humidity[i],
-          windSpeed:   windSpeed[i],
-        });
-      }
-    }
-
-    return dayHours;
-  }, [weatherData, dateStr]);
+  const sortedHourly = weatherData?.hourly || [];
 
   // ── Transform-based hourly slider custom hook ──────────────────────────────
   const {
