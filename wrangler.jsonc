@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "weather-app-v1",
+	"name": "weather-insights",
 	"compatibility_date": "2026-06-03",
 	"observability": {
 		"enabled": true
