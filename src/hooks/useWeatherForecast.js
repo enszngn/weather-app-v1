@@ -74,9 +74,25 @@ export default function useWeatherForecast(initialWeather) {
         `&start_date=${dateStr}&end_date=${dateStr}`,
       ].join('');
 
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const cooldowns = [1000, 2000, 4000];
+      const maxAttempts = 4;
+      let data = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          data = await res.json();
+          break;
+        } catch (err) {
+          if (attempt === maxAttempts) {
+            throw err;
+          }
+          const delayMs = cooldowns[attempt - 1] || 1000;
+          console.warn(`Fetch attempt ${attempt} failed for date ${dateStr}. Retrying in ${delayMs}ms...`, err);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
 
       const isToday = dateStr === days[0];
 
@@ -93,7 +109,7 @@ export default function useWeatherForecast(initialWeather) {
         };
       });
     } catch (err) {
-      console.error(`Fetch failed for date ${dateStr}:`, err);
+      console.error(`Fetch failed for date ${dateStr} after 4 attempts:`, err);
       setLoadedData((prev) => ({
         ...prev,
         [dateStr]: { loading: false, error: 'Failed to load weather data', data: null },
@@ -114,7 +130,7 @@ export default function useWeatherForecast(initialWeather) {
     ];
     neighbors.forEach((idx) => {
       const dateStr = days[idx];
-      if (!loadedData[dateStr] || loadedData[dateStr].error) {
+      if (!loadedData[dateStr]) {
         fetchDataForDate(dateStr, coords.lat, coords.lon);
       }
     });
