@@ -69,6 +69,8 @@ export default function StatsPage({ navigate }) {
   const [error, setError]                 = useState('');
   const [loading, setLoading]             = useState(false);
   const [stats, setStats]                 = useState(null);
+  const [sortField, setSortField]         = useState('date'); // 'id' | 'location' | 'date'
+  const [sortOrder, setSortOrder]         = useState('desc'); // 'asc' | 'desc'
 
   // Attempt to load stats on mount using the HTTP-only session cookie.
   useEffect(() => {
@@ -145,6 +147,38 @@ export default function StatsPage({ navigate }) {
   const totalVisitsCount = stats?.visits?.length  ?? 0;
   const uniqueCitiesCount = stats?.pins?.length   ?? 0;
   const topCityName       = stats?.pins?.[0]?.city ?? 'None';
+
+  const sortedVisits = useMemo(() => {
+    if (!stats?.visits) return [];
+    const list = [...stats.visits];
+    list.sort((a, b) => {
+      let aVal, bVal;
+      if (sortField === 'id') {
+        aVal = a.id;
+        bVal = b.id;
+      } else if (sortField === 'location') {
+        aVal = (a.city_name || a.city || 'Unknown').toLowerCase();
+        bVal = (b.city_name || b.city || 'Unknown').toLowerCase();
+      } else { // 'date'
+        aVal = a.created_at || '';
+        bVal = b.created_at || '';
+      }
+
+      if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [stats?.visits, sortField, sortOrder]);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
 
   // ── Login screen ──────────────────────────────────────────────────────────────
   if (!isAuthenticated) {
@@ -314,17 +348,23 @@ export default function StatsPage({ navigate }) {
           <div className="overflow-x-auto rounded-none border border-[#5e6572]/60">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-[#1c2321]/80 text-slate-300 font-medium border-b border-[#5e6572]/60">
-                  <th className="py-4 px-5">ID</th>
+                <tr className="bg-[#1c2321]/80 text-slate-300 font-medium border-b border-[#5e6572]/60 select-none">
+                  <th onClick={() => handleSort('id')} className="py-4 px-5 cursor-pointer hover:text-white transition-colors duration-200">
+                    ID {sortField === 'id' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+                  </th>
                   <th className="py-4 px-5">IP Address</th>
-                  <th className="py-4 px-5">Location</th>
+                  <th onClick={() => handleSort('location')} className="py-4 px-5 cursor-pointer hover:text-white transition-colors duration-200">
+                    Location {sortField === 'location' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+                  </th>
                   <th className="py-4 px-5">Coordinates (Lat, Lon)</th>
-                  <th className="py-4 px-5">Visit Date</th>
+                  <th onClick={() => handleSort('date')} className="py-4 px-5 cursor-pointer hover:text-white transition-colors duration-200">
+                    Visit Date {sortField === 'date' ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#5e6572]/40 bg-[#5e6572]/10">
-                {stats?.visits?.length ? (
-                  stats.visits.map((visit) => (
+                {sortedVisits.length ? (
+                  sortedVisits.map((visit) => (
                     <tr key={visit.id} className="hover:bg-[#5e6572]/30 transition-colors duration-200">
                       <td className="py-4 px-5 text-slate-400 font-mono">#{visit.id}</td>
                       <td className="py-4 px-5 font-mono text-[#a9b4c2]/95">{visit.ip}</td>
