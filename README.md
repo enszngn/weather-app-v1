@@ -2,7 +2,7 @@
 
 A high-performance, minimalist weather application designed to provide instant atmospheric data with zero friction. Built with modern web technologies and deployed on the edge for maximum speed.
 
-**🔗 [Live Demo](weather-insights.eneszengin542.workers.dev)**
+**🔗 [Live Demo](https://weather-insights.eneszengin542.workers.dev/)**
 
 ---
 
