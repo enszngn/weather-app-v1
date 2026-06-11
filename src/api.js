@@ -56,6 +56,7 @@ export async function onRequestGetWeather(context) {
     const url = new URL(request.url);
     const queryLat = url.searchParams.get('lat');
     const queryLon = url.searchParams.get('lon');
+    const isSearch = !!(queryLat && queryLon);
 
     let ip, city, country, lat, lon;
     const geo = _extractGeo(request);
@@ -192,8 +193,10 @@ export async function onRequestGetWeather(context) {
     }
 
     // ── Log visit to D1 (non-blocking) ───────────────────────────────────────
+    // Only log the initial page load (when no lat/lon search parameters are provided).
+    // Subsequent city searches are not logged to keep stats accurate for actual visitors.
     const db = env.weatherApp_db || env.DB;
-    if (db) {
+    if (db && !isSearch) {
         context.waitUntil(_logVisit(db, { locationName: weatherData.locationName, ip, city, country, lat, lon }));
     }
 
