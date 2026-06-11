@@ -1,4 +1,4 @@
-import { onRequestPost, onRequestGet, onRequestGetWeather } from "./api.js";
+import { onRequestPost, onRequestGet, onRequestGetWeather, onRequestLogin, onRequestLogout } from "./api.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -16,6 +16,34 @@ export default {
           next: () => new Response("Not Found", { status: 404 })
         };
         return onRequestGetWeather(context);
+      }
+      return new Response("Method Not Allowed", { status: 405 });
+    }
+
+    // ── Route: POST /api/login ────────────────────────────────────────────────────
+    if (url.pathname === "/api/login" || url.pathname === "/api/login/") {
+      if (request.method === "POST") {
+        const context = {
+          request,
+          env,
+          waitUntil: (promise) => ctx.waitUntil(promise),
+          next: () => new Response("Not Found", { status: 404 })
+        };
+        return onRequestLogin(context);
+      }
+      return new Response("Method Not Allowed", { status: 405 });
+    }
+
+    // ── Route: POST /api/logout ───────────────────────────────────────────────────
+    if (url.pathname === "/api/logout" || url.pathname === "/api/logout/") {
+      if (request.method === "POST") {
+        const context = {
+          request,
+          env,
+          waitUntil: (promise) => ctx.waitUntil(promise),
+          next: () => new Response("Not Found", { status: 404 })
+        };
+        return onRequestLogout(context);
       }
       return new Response("Method Not Allowed", { status: 405 });
     }

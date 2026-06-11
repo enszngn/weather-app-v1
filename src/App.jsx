@@ -42,28 +42,6 @@ export default function App() {
   return (
     <div className="relative">
       {weather && <CylinderTimeline initialWeather={weather} />}
-
-      {/* Floating visitor statistics button */}
-      <button
-        onClick={() => navigate('/stats')}
-        className="fixed bottom-4 right-4 z-40 p-3 bg-slate-900/60 hover:bg-slate-900/90 text-white rounded-full border border-slate-700/50 backdrop-blur-md shadow-lg transition-all duration-300 group cursor-pointer"
-        title="Visitor Statistics"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-5 w-5 group-hover:scale-110 transition-transform duration-300"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2"
-          />
-        </svg>
-      </button>
     </div>
   );
 }

@@ -70,29 +70,25 @@ export default function StatsPage({ navigate }) {
   const [loading, setLoading]             = useState(false);
   const [stats, setStats]                 = useState(null);
 
-  // Restore session if a stored password exists.
+  // Attempt to load stats on mount using the HTTP-only session cookie.
   useEffect(() => {
-    const savedPassword = sessionStorage.getItem('stats_password');
-    if (savedPassword) fetchStats(savedPassword);
+    fetchStats();
   }, []);
 
-  const fetchStats = async (authPassword) => {
+  const fetchStats = async () => {
     setLoading(true);
     setError('');
     try {
       const response = await fetch('/api', {
         method:  'GET',
-        headers: { Authorization: `Bearer ${authPassword}` },
       });
       const data = await response.json();
 
       if (response.ok && data.success) {
         setStats(data);
         setIsAuthenticated(true);
-        sessionStorage.setItem('stats_password', authPassword);
       } else {
-        setError(data.error || 'Login failed. Please check your password.');
-        sessionStorage.removeItem('stats_password');
+        setIsAuthenticated(false);
       }
     } catch (err) {
       console.error('Error fetching stats:', err);
@@ -102,20 +98,46 @@ export default function StatsPage({ navigate }) {
     }
   };
 
-  const handleLoginSubmit = (e) => {
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (!password.trim()) {
       setError('Password field cannot be empty.');
       return;
     }
-    fetchStats(password);
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/login', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password }),
+      });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        await fetchStats();
+      } else {
+        setError(data.error || 'Login failed. Please check your password.');
+      }
+    } catch (err) {
+      console.error('Error logging in:', err);
+      setError('A server error occurred during login.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('stats_password');
+  const handleLogout = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Error logging out:', err);
+    }
     setIsAuthenticated(false);
     setStats(null);
     setPassword('');
+    setLoading(false);
   };
 
   // ── Derived data — memoized to avoid re-computation on every render ───────────

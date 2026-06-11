@@ -235,6 +235,71 @@ export async function onRequestPost(context) {
     }
 }
 
+/** Helper to parse a cookie by name from the request headers */
+function _getCookie(request, name) {
+    const cookieHeader = request.headers.get('Cookie');
+    if (!cookieHeader) return null;
+    const cookies = cookieHeader.split(';');
+    for (let cookie of cookies) {
+        const parts = cookie.trim().split('=');
+        const k = parts[0];
+        const v = parts.slice(1).join('=');
+        if (k === name) return decodeURIComponent(v || '');
+    }
+    return null;
+}
+
+/**
+ * POST /api/login
+ * Validates password and sets an HTTP-only session cookie.
+ */
+export async function onRequestLogin(context) {
+    const { request, env } = context;
+    try {
+        const { password } = await request.json();
+        const expectedPassword = env.STATS_PASSWORD || 'admin123';
+
+        if (password === expectedPassword) {
+            const url = new URL(request.url);
+            const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+            const secureFlag = isLocalhost ? '' : 'Secure;';
+
+            const headers = new Headers({
+                'Content-Type': 'application/json',
+                'Set-Cookie': `stats_session=${encodeURIComponent(password)}; Path=/; HttpOnly; ${secureFlag} SameSite=Strict; Max-Age=14400`,
+            });
+            return new Response(JSON.stringify({ success: true }), { status: 200, headers });
+        } else {
+            return new Response(
+                JSON.stringify({ success: false, error: 'Unauthorized access (invalid password)' }),
+                { status: 401, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+    } catch (err) {
+        return new Response(
+            JSON.stringify({ success: false, error: 'Malformed request body' }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+    }
+}
+
+/**
+ * POST /api/logout
+ * Clears the HTTP-only session cookie.
+ */
+export async function onRequestLogout(context) {
+    const { request } = context;
+    const url = new URL(request.url);
+    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    const secureFlag = isLocalhost ? '' : 'Secure;';
+
+    const headers = new Headers({
+        'Content-Type': 'application/json',
+        'Set-Cookie': `stats_session=; Path=/; HttpOnly; ${secureFlag} SameSite=Strict; Max-Age=0`,
+    });
+    return new Response(JSON.stringify({ success: true }), { status: 200, headers });
+}
+
 /**
  * GET /api
  * Password-protected stats dashboard data.
@@ -242,10 +307,16 @@ export async function onRequestPost(context) {
 export async function onRequestGet(context) {
     const { request, env } = context;
 
-    // Authentication Check (requires Authorization: Bearer <password> header).
-    const authHeader      = request.headers.get('Authorization');
-    const password        = authHeader ? authHeader.replace('Bearer ', '') : '';
     const expectedPassword = env.STATS_PASSWORD || 'admin123';
+
+    // 1. Check Cookie first (primary auth method)
+    let password = _getCookie(request, 'stats_session');
+
+    // 2. Fallback to Authorization Header (backward compatibility / testing)
+    if (!password) {
+        const authHeader = request.headers.get('Authorization');
+        password = authHeader ? authHeader.replace('Bearer ', '') : '';
+    }
 
     if (password !== expectedPassword) {
         return new Response(
